@@ -10,5 +10,7 @@ Livrable : le code sans les data + rapport de 10 pages
 
 lien du CR : [CR](https://1drv.ms/w/c/1265599f2c973b15/IQDkAhwM534kSIbf0eIzCYRUAQXxQlNQrV8-rmVndYI0OIc?e=mKdDRQ)
 
+Lien test format: [lien](pytorch Models comparaison : https://www.wirelog.net/posts/2025-05-11-image-classification-models-pytorch-comparision/)
+
 ## have fun la team !! yay !!!!!
 
