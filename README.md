@@ -82,6 +82,12 @@ Les résultats sont créés dans `results/` :
 - **Soutenance :** 16 novembre 2026.
 - **Livrables :** le code sans les données et un rapport de 10 pages.
 
+## Faire en vu du rendu
+
+- Faire des graphiques benchmarks de différents modèles
+- Faire graphiques différents facteur d'apprentissage
+
+
 ## Pistes d’amélioration
 
 - Équilibrer le nombre d’images d’entraînement par catégorie. Par exemple, après plusieurs époques, le modèle devrait avoir été entraîné sur autant d’images de pain que de riz.
