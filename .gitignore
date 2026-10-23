@@ -1,4 +1,19 @@
-/data/*
-!/data/.gitkeep.venv/
+# Environnement virtuel
 .venv/
 
+# Cache Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Dataset (conserver uniquement .gitkeep)
+/data/*
+!/data/.gitkeep
+
+# Modèles entraînés
+*.pth
+*.pt
+
+# Résultats
+/results/*
+!/results/.gitkeep
