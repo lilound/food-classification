@@ -200,6 +200,26 @@ ainsi qu'un comparatif par modèle au meilleur score et à la dernière époque
 commune. Les durées dépendent du PC et ne servent pas à attribuer un gain au
 scheduler. Les scores sont des scores de validation locale.
 
+### Essai optionnel : taux adapté à chaque lot
+
+```bash
+python benchmark_lr_adaptive.py --models shufflenet05
+```
+
+Ce troisième essai garde Adam et le protocole commun, mais ajuste le taux
+global avant chaque mise à jour, à partir de l'alignement entre le gradient
+de la tête de classification et le déplacement utile du lot précédent.
+Le signal est lissé ; le taux part de `1e-4` et reste entre `1e-6` et
+`3e-4`. La stagnation de la frugalité en validation abaisse ce plafond
+avec la même règle `ReduceLROnPlateau` que l'autre essai variable.
+
+Les résultats vont dans `results/benchmark_lr_adaptive/`. L'historique
+enregistre aussi le taux minimum, maximum et moyen de chaque époque.
+Utilisez `--resume` avec la même sélection après une interruption, ou
+omettez `--models` dans un nouveau dossier pour essayer les dix réseaux.
+Comparez d'abord ShuffleNet ×0,5 aux deux autres modes sur le même découpage,
+au meilleur score et à nombre d'époques égal.
+
 ## Échéances et livrables
 
 - **Date limite :** 15 novembre 2026.
