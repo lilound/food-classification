@@ -84,9 +84,24 @@ Les résultats sont créés dans `results/` :
 
 ## Faire en vu du rendu
 
-- Faire des graphiques benchmarks de différents modèles
 - Faire graphiques différents facteur d'apprentissage
 
+
+## Pipeline d’amélioration
+
+Comparer plusieurs modèles préentraînés. Gardez les mêmes données de validation et, autant que possible, les mêmes conditions d’entraînement : résolution, augmentations, époques et taux d’apprentissage. Comparez leur frugalité, leur F1, leur nombre de paramètres et leur temps d’entraînement. Gardez les 2 ou 3 meilleurs pour la suite.
+
+Tester le taux d’apprentissage et le nombre d’époques. Ce sont les premiers réglages à essayer sur les modèles retenus : un modèle mal entraîné peut sembler moins bon qu’il ne l’est. Par exemple, testez quelques taux autour de 1e-4, puis observez le score de validation après chaque époque. Un taux qui diminue au cours de l’entraînement peut aussi être testé.
+
+Tester le gel des couches. Comparez trois possibilités : entraîner seulement la dernière couche, dégeler les dernières couches, puis entraîner tout le modèle. Geler des couches peut réduire le coût d’entraînement, mais aussi réduire le F1. Cela ne diminue pas nécessairement le nombre total de paramètres du modèle. PyTorch : apprentissage par transfert
+
+Tester la taille des images. Commencez par 224 × 224 pixels — pas 224 × 244 — puis comparez avec une résolution plus petite, par exemple 160 × 160. Les images plus petites réduisent généralement le calcul, mais peuvent faire perdre des détails utiles. Respectez aussi les prétraitements associés aux poids préentraînés.
+
+Tester l’équilibrage des catégories. Regardez d’abord si certaines classes sont sous-représentées et si leur F1 est faible. Si oui, essayez un échantillonnage équilibré ou une pondération de la fonction de perte. Comparez avec l’entraînement sans équilibrage : ce n’est pas automatiquement meilleur.
+
+Tester les augmentations d’images. Le retournement horizontal avec une probabilité de 50 % est une bonne base, suivi d’essais modérés sur la luminosité et le contraste. Ces transformations s’appliquent à l’entraînement, pas à la validation. Elles peuvent améliorer la généralisation, mais il faut mesurer leur effet. PyTorch : transformations d’images
+
+Recomparer les finalistes. Les réglages optimaux peuvent différer selon l’architecture : entraînez les meilleurs candidats avec leurs bons réglages, puis choisissez celui qui obtient la meilleure frugalité sur le même jeu de validation. Réservez le test final pour l’évaluation finale.
 
 ## Pistes d’amélioration
 

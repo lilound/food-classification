@@ -40,6 +40,8 @@ def main():
     else:
         raise ValueError("Modèle inconnu")
 
+    print(f"Paramètres de {MODEL_NAME} : {sum(p.numel() for p in model.parameters()):,}")
+
     # Choisir le GPU si disponible
     if torch.cuda.is_available():
         device = torch.device("cuda")
