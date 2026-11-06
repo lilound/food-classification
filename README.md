@@ -220,6 +220,10 @@ omettez `--models` dans un nouveau dossier pour essayer les dix réseaux.
 Comparez d'abord ShuffleNet ×0,5 aux deux autres modes sur le même découpage,
 au meilleur score et à nombre d'époques égal.
 
+Le [dossier benchmark](benchmark/README.md) rassemble les historiques JSON/CSV,
+les courbes par modèle et le diagramme d'ensemble pour le rendu. Le guide
+indique comment y intégrer les résultats du deuxième PC.
+
 ## Échéances et livrables
 
 - **Date limite :** 15 novembre 2026.

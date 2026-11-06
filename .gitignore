@@ -17,3 +17,10 @@ __pycache__/
 # Résultats
 /results/*
 !/results/.gitkeep
+
+# Archives et figures locales du dossier benchmark
+/benchmark/index.md
+/benchmark/experiences/
+/benchmark/courbes_par_modele/
+/benchmark/comparaison/
+/benchmark/protocole/
