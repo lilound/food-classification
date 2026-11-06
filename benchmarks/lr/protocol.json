@@ -6,7 +6,7 @@
   "initial_lr": 0.0001,
   "min_epochs": 12,
   "max_epochs": 60,
-  "early_stopping_patience": 10,
+  "early_stopping_patience": 6,
   "min_delta": 0.001,
   "scheduler": {
     "mode": "max",

@@ -160,10 +160,23 @@ python benchmark_lr.py --mode plateau
 ```
 
 Les deux modes comparent les mêmes dix réseaux, de 353 067 à 6 527 275
-paramètres. Chaque réseau s'arrête individuellement après dix époques sans
+paramètres. Chaque réseau s'arrête individuellement après six époques sans
 progrès d'au moins 0,001, jamais avant l'époque 12, ou au plafond de 60 époques.
 La meilleure frugalité brute est sauvegardée indépendamment de ce seuil. La
 patience ne se remet pas à zéro lors d'un changement de taux.
+
+Si un benchmark a déjà démarré avec l'ancienne patience de dix, arrêtez
+l'ancien processus puis importez ses checkpoints dans un nouveau dossier :
+
+```bash
+python benchmark_lr.py --mode plateau --import-patience10 results/benchmark_lr_variable --output results/benchmark_lr_variable_p6
+```
+
+Pour le taux fixe, utilisez `--mode fixed` et remplacez `variable` par `fixed`
+dans ces deux chemins. Le script rejoue le nouvel arrêt sur les scores déjà
+mesurés et garde les anciens fichiers à part. Il ne réentraîne que les modèles
+dont le meilleur état admissible n'est plus disponible. Après l'import, utilisez
+`--resume --output <nouveau_dossier>` si le nouveau processus est interrompu.
 
 Le script sélectionne CUDA si disponible, sinon le CPU. Sur CPU, la durée
 totale peut atteindre plusieurs heures. En cas d'interruption, relancez la
@@ -181,7 +194,8 @@ poids. Une fois les fichiers réunis, lancez :
 python plot_benchmark_lr.py results/benchmark_lr_fixed results/benchmark_lr_variable --output results/comparaison_lr
 ```
 
-Cette commande produit deux graphiques PNG et SVG sur des axes communs,
+Si vous avez importé un ancien benchmark, indiquez son dossier `_p6` dans
+cette commande. Elle produit deux graphiques PNG et SVG sur des axes communs,
 ainsi qu'un comparatif par modèle au meilleur score et à la dernière époque
 commune. Les durées dépendent du PC et ne servent pas à attribuer un gain au
 scheduler. Les scores sont des scores de validation locale.

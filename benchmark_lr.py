@@ -24,6 +24,7 @@ KIT = ROOT / "benchmarks/lr"
 CONFIG = KIT / "protocol.json"
 SPLIT = KIT / "split.json"
 MODES = ("fixed", "plateau")
+PATIENCE10_FINGERPRINT = "20859ef94e17dd6a7b804db956ba49cba788d50306a08474a8b9f9dcf715adb9"
 
 
 def read(path):
@@ -118,6 +119,68 @@ def update_reports(out, states):
     write(out / "summary.json", sorted(summary, key=lambda row: -row["frugality"]))
 
 
+def progress(protocol, score, reference, stale, epoch):
+    if score >= reference + protocol["min_delta"]:
+        reference, stale = score, 0
+    else:
+        stale += 1
+    stop = None
+    if epoch >= protocol["min_epochs"] and stale >= protocol["early_stopping_patience"]:
+        stop = "plateau"
+    elif epoch == protocol["max_epochs"]:
+        stop = "plafond"
+    return reference, stale, stop
+
+
+def import_patience10(source, out, protocol, mode):
+    """Rejoue l'arrêt sans modifier le run d'origine ni inventer des checkpoints."""
+    old_config = CONFIG.read_bytes().replace(b"\r\n", b"\n").replace(
+        b'"early_stopping_patience": 6', b'"early_stopping_patience": 10')
+    split = SPLIT.read_bytes().replace(b"\r\n", b"\n")
+    old = read(source / "run.json")
+    valid = any(
+        old["signature"] == {
+            "mode": mode,
+            "protocol_sha256": hashlib.sha256(c + s).hexdigest(),
+            "split_sha256": hashlib.sha256(s).hexdigest(),
+        }
+        for c in (old_config, old_config.replace(b"\n", b"\r\n"))
+        for s in (split, split.replace(b"\n", b"\r\n"))
+    )
+    if hashlib.sha256(old_config + split).hexdigest() != PATIENCE10_FINGERPRINT or not valid:
+        raise ValueError("Le run source doit utiliser exactement l'ancien protocole à patience 10 et le même mode.")
+
+    states = {}
+    for name in protocol["models"]:
+        path = source / f"{name}.pth"
+        if not path.is_file():
+            continue
+        saved = torch.load(path, map_location="cpu", weights_only=True)
+        original = saved["history"]
+        kept = []
+        reference, stale, stop = -math.inf, 0, None
+        for row in original:
+            kept.append(row)
+            reference, stale, stop = progress(
+                protocol, row["frugality"], reference, stale, row["epoch"])
+            if stop:
+                break
+        if len(kept) != len(original):
+            best_kept = max(kept, key=lambda row: row["frugality"])["epoch"]
+            best_original = max(original, key=lambda row: row["frugality"])["epoch"]
+            if best_kept != best_original:
+                print(f"{name}: les poids du meilleur état admissible manquent ; réentraînement.", flush=True)
+                continue
+            # Les poids de dernière époque et Adam sont postérieurs à l'arrêt rejoué.
+            saved.update(weights=None, optimizer=None, scheduler=None)
+        saved.update(history=kept, reference=reference, stale=stale, stop=stop)
+        save_checkpoint(out / path.name, saved)
+        states[name] = {"history": kept, "stop": stop}
+        print(f"{name}: importé jusqu'à l'époque {kept[-1]['epoch']}"
+              + (f" (arrêt : {stop})" if stop else " (à reprendre)"), flush=True)
+    return states, old["machines"]
+
+
 def run(args):
     protocol = read(CONFIG)
     dependencies = check_dependencies()
@@ -133,12 +196,14 @@ def run(args):
     out = args.output or ROOT / "results" / (
         "benchmark_lr_fixed" if args.mode == "fixed" else "benchmark_lr_variable"
     )
-    fingerprint = hashlib.sha256(CONFIG.read_bytes() + SPLIT.read_bytes()).hexdigest()
-    signature = {"mode": args.mode, "protocol_sha256": fingerprint,
-                 "split_sha256": hashlib.sha256(SPLIT.read_bytes()).hexdigest()}
+    config_bytes = json.dumps(protocol, ensure_ascii=False, separators=(",", ":")).encode()
+    split_bytes = json.dumps(read(SPLIT), ensure_ascii=False, separators=(",", ":")).encode()
+    signature = {"mode": args.mode, "protocol_sha256": hashlib.sha256(config_bytes + split_bytes).hexdigest(),
+                 "split_sha256": hashlib.sha256(split_bytes).hexdigest()}
     machine = {"platform": platform.platform(), "python": platform.python_version(),
                "device": str(device), "gpu": torch.cuda.get_device_name() if use_cuda else None,
                "dependencies": dependencies, "threads": args.threads, "workers": args.workers}
+    states = {}
     if args.resume:
         metadata = read(out / "run.json")
         if metadata["signature"] != signature:
@@ -147,6 +212,11 @@ def run(args):
     else:
         out.mkdir(parents=True, exist_ok=False)
         metadata = {"signature": signature, "machines": [machine]}
+        if args.import_patience10:
+            states, previous_machines = import_patience10(args.import_patience10, out, protocol, args.mode)
+            metadata["machines"] = [*previous_machines, machine]
+            metadata["imported_patience10"] = True
+            update_reports(out, states)
     write(out / "run.json", metadata)
     print(f"{args.mode}: {len(train)} train, {len(val)} validation, {device}, {out}", flush=True)
     options = dict(batch_size=protocol["batch_size"], num_workers=args.workers,
@@ -155,7 +225,6 @@ def run(args):
                               generator=torch.Generator().manual_seed(protocol["seed"]), **options)
     val_loader = DataLoader(val, generator=torch.Generator().manual_seed(protocol["seed"]), **options)
     criterion = nn.CrossEntropyLoss()
-    states = {}
     if args.resume:
         for name in protocol["models"]:
             path = out / f"{name}.pth"
@@ -200,21 +269,13 @@ def run(args):
             if frugality > best:
                 best = frugality
                 best_weights = {key: value.detach().cpu().clone() for key, value in model.state_dict().items()}
-            if frugality >= reference + protocol["min_delta"]:
-                reference, stale = frugality, 0
-            else:
-                stale += 1
+            reference, stale, stop = progress(protocol, frugality, reference, stale, epoch)
             if scheduler is not None:
                 scheduler.step(frugality)
             row = dict(model=name, epoch=epoch, params=params, lr=lr, next_lr=optimizer.param_groups[0]["lr"],
                        train_loss=train_loss, val_loss=val_loss, accuracy=accuracy, f1=f1,
                        frugality=frugality, seconds=perf_counter() - started)
             history.append(row)
-            stop = None
-            if epoch >= protocol["min_epochs"] and stale >= protocol["early_stopping_patience"]:
-                stop = "plateau"
-            elif epoch == protocol["max_epochs"]:
-                stop = "plafond"
             save_checkpoint(path, dict(weights=model.state_dict(), best_weights=best_weights,
                                        optimizer=optimizer.state_dict(),
                                        scheduler=scheduler.state_dict() if scheduler is not None else None,
@@ -238,7 +299,9 @@ def main():
     parser.add_argument("--mode", choices=MODES, required=True)
     parser.add_argument("--data-dir", type=Path, default=ROOT / "data/food-11")
     parser.add_argument("--output", type=Path)
-    parser.add_argument("--resume", action="store_true")
+    continuation = parser.add_mutually_exclusive_group()
+    continuation.add_argument("--resume", action="store_true")
+    continuation.add_argument("--import-patience10", type=Path, metavar="ANCIEN_DOSSIER")
     parser.add_argument("--device", choices=("auto", "cpu", "cuda"), default="auto")
     parser.add_argument("--workers", type=int, default=4)
     parser.add_argument("--threads", type=int, default=4)
