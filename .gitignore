@@ -19,6 +19,7 @@ __pycache__/
 !/results/.gitkeep
 
 # Archives et figures locales du dossier benchmark
+<<<<<<< HEAD
 /benchmark/index.md
 /benchmark/experiences/
 /benchmark/courbes_par_modele/
@@ -26,3 +27,10 @@ __pycache__/
 /benchmark/protocole/
 /benchmark/nuit/
 /benchmark/nuit.zip
+=======
+/resultats_benchmark/index.md
+/resultats_benchmark/experiences/
+/resultats_benchmark/courbes_par_modele/
+/resultats_benchmark/comparaison/
+/resultats_benchmark/protocole/
+>>>>>>> b3da0ea (clean)

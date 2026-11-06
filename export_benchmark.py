@@ -19,7 +19,6 @@ CONFIG = ROOT / "benchmarks/lr/protocol.json"
 SPLIT = ROOT / "benchmarks/lr/split.json"
 MODES = {
     "fixed": ("Taux fixe", "#3165A7", "-"),
-    "plateau": ("Taux variable · plateau", "#B55400", "--"),
     "adaptive": ("Taux adaptatif · par lot", "#187455", "-."),
 }
 
@@ -106,6 +105,8 @@ def render(output, snapshots, protocol, split, pending):
         mode = signature["mode"]
         if mode not in MODES or mode in runs:
             raise ValueError(f"Mode inconnu ou présent deux fois : {mode}.")
+        if mode == "fixed" and signature.get("fixed_lr") != protocol["initial_lr"]:
+            raise ValueError("Le taux fixe ne correspond pas au protocole.")
         if (signature["protocol_sha256"], signature["split_sha256"]) != (protocol_hash, split_hash):
             raise ValueError(f"{mode}: résultat incompatible avec le protocole figé. Utilisez le run à patience 6.")
         if any(row["model"] not in names for row in snapshot["history"]):
@@ -207,7 +208,7 @@ def alive(pid):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("runs", nargs="+", type=Path)
-    parser.add_argument("--output", type=Path, default=ROOT / "benchmark")
+    parser.add_argument("--output", type=Path, default=ROOT / "resultats_benchmark")
     parser.add_argument("--watch-pid", action="append", type=int, default=[],
                         help="Sur Linux, actualise tant qu'un des processus indiqués tourne")
     parser.add_argument("--interval", type=int, default=60)

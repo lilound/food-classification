@@ -13,6 +13,7 @@ from time import perf_counter
 import torch
 from sklearn.metrics import accuracy_score, f1_score
 from torch import nn
+from torch.nn.functional import cosine_similarity
 from torch.utils.data import DataLoader, RandomSampler, Subset
 from torchvision.datasets import ImageFolder
 
@@ -23,8 +24,66 @@ ROOT = Path(__file__).resolve().parent
 KIT = ROOT / "benchmarks/lr"
 CONFIG = KIT / "protocol.json"
 SPLIT = KIT / "split.json"
-MODES = ("fixed", "plateau")
-PATIENCE10_FINGERPRINT = "20859ef94e17dd6a7b804db956ba49cba788d50306a08474a8b9f9dcf715adb9"
+MODES = ("fixed", "adaptive")
+
+POLICY = {"gain": 0.02, "smoothing": 0.95, "max_lr_factor": 3.0}
+
+
+class AdaptiveRate:
+    """Approximation normalisée de l'hypergradient sur la tête de classification."""
+
+    def __init__(self, optimizer, head, plateau_options):
+        self.head = head
+        self.direction = None
+        self.alignment = 0.0
+        self.rates = []
+        self.group = optimizer.param_groups[0]
+        self.floor = plateau_options["min_lr"]
+        self.ceiling = POLICY["max_lr_factor"] * self.group["lr"]
+        self.plateau = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, **plateau_options)
+
+    @torch.no_grad()
+    def before_step(self):
+        if self.direction is not None and self.head.grad is not None:
+            cosine = cosine_similarity(self.head.grad.reshape(-1), self.direction.reshape(-1),
+                                       dim=0, eps=1e-12).item()
+            if math.isfinite(cosine):
+                smoothing = POLICY["smoothing"]
+                self.alignment = smoothing * self.alignment + (1 - smoothing) * cosine
+                lr = self.group["lr"] * math.exp(POLICY["gain"] * self.alignment)
+                self.group["lr"] = min(self.ceiling, max(self.floor, lr))
+        self.rates.append(self.group["lr"])
+        return self.head.detach().clone()
+
+    @torch.no_grad()
+    def after_step(self, before):
+        # Le déplacement effectif d'Adam est -LR × direction.
+        self.direction = before - self.head.detach()
+
+    def validate(self, score):
+        # ReduceLROnPlateau pilote le plafond, l'hypergradient pilote le taux courant.
+        lr, old_ceiling = self.group["lr"], self.ceiling
+        self.group["lr"] = self.ceiling
+        self.plateau.step(score)
+        self.ceiling = self.group["lr"]
+        self.group["lr"] = min(self.ceiling, max(self.floor, lr * (self.ceiling / old_ceiling)))
+
+    def state_dict(self):
+        return dict(direction=self.direction, alignment=self.alignment,
+                    ceiling=self.ceiling, plateau=self.plateau.state_dict())
+
+    def load_state_dict(self, state):
+        # Adam remplace ses groupes lors du chargement de son état.
+        self.group = self.plateau.optimizer.param_groups[0]
+        direction = state["direction"]
+        self.direction = direction.to(self.head.device) if direction is not None else None
+        self.alignment = state["alignment"]
+        self.ceiling = state["ceiling"]
+        self.plateau.load_state_dict(state["plateau"])
+
+
+def fingerprint(value):
+    return json.dumps(value, ensure_ascii=False, separators=(",", ":")).encode()
 
 
 def read(path):
@@ -65,7 +124,7 @@ def verified_split(data_dir, protocol):
     return Subset(dataset, [paths[p] for p in train]), Subset(dataset, [paths[p] for p in val])
 
 
-def run_epoch(model, loader, criterion, device, optimizer=None, seed=None):
+def run_epoch(model, loader, criterion, device, optimizer=None, seed=None, controller=None):
     training = optimizer is not None
     model.train(training)
     loss_sum = torch.zeros((), device=device)
@@ -86,7 +145,10 @@ def run_epoch(model, loader, criterion, device, optimizer=None, seed=None):
             loss = criterion(logits, device_labels)
             if training:
                 loss.backward()
+                before = controller.before_step() if controller else None
                 optimizer.step()
+                if controller:
+                    controller.after_step(before)
             else:
                 predictions.extend(logits.argmax(dim=1).tolist())
                 targets.extend(labels.tolist())
@@ -132,58 +194,9 @@ def progress(protocol, score, reference, stale, epoch):
     return reference, stale, stop
 
 
-def import_patience10(source, out, protocol, mode):
-    """Rejoue l'arrêt sans modifier le run d'origine ni inventer des checkpoints."""
-    old_config = CONFIG.read_bytes().replace(b"\r\n", b"\n").replace(
-        b'"early_stopping_patience": 6', b'"early_stopping_patience": 10')
-    split = SPLIT.read_bytes().replace(b"\r\n", b"\n")
-    old = read(source / "run.json")
-    valid = any(
-        old["signature"] == {
-            "mode": mode,
-            "protocol_sha256": hashlib.sha256(c + s).hexdigest(),
-            "split_sha256": hashlib.sha256(s).hexdigest(),
-        }
-        for c in (old_config, old_config.replace(b"\n", b"\r\n"))
-        for s in (split, split.replace(b"\n", b"\r\n"))
-    )
-    if hashlib.sha256(old_config + split).hexdigest() != PATIENCE10_FINGERPRINT or not valid:
-        raise ValueError("Le run source doit utiliser exactement l'ancien protocole à patience 10 et le même mode.")
-
-    states = {}
-    for name in protocol["models"]:
-        path = source / f"{name}.pth"
-        if not path.is_file():
-            continue
-        saved = torch.load(path, map_location="cpu", weights_only=True)
-        original = saved["history"]
-        kept = []
-        reference, stale, stop = -math.inf, 0, None
-        for row in original:
-            kept.append(row)
-            reference, stale, stop = progress(
-                protocol, row["frugality"], reference, stale, row["epoch"])
-            if stop:
-                break
-        if len(kept) != len(original):
-            best_kept = max(kept, key=lambda row: row["frugality"])["epoch"]
-            best_original = max(original, key=lambda row: row["frugality"])["epoch"]
-            if best_kept != best_original:
-                print(f"{name}: les poids du meilleur état admissible manquent ; réentraînement.", flush=True)
-                continue
-            # Les poids de dernière époque et Adam sont postérieurs à l'arrêt rejoué.
-            saved.update(weights=None, optimizer=None, scheduler=None)
-        saved.update(history=kept, reference=reference, stale=stale, stop=stop)
-        save_checkpoint(out / path.name, saved)
-        states[name] = {"history": kept, "stop": stop}
-        print(f"{name}: importé jusqu'à l'époque {kept[-1]['epoch']}"
-              + (f" (arrêt : {stop})" if stop else " (à reprendre)"), flush=True)
-    return states, old["machines"]
-
-
 def run(args):
     protocol = read(CONFIG)
-    dependencies = check_dependencies()
+    selected = args.models or list(protocol["models"])
     torch.set_num_threads(args.threads)
     torch.set_float32_matmul_precision("highest")
     torch.backends.cudnn.allow_tf32 = False
@@ -192,122 +205,126 @@ def run(args):
     if args.device == "cuda" and not use_cuda:
         raise RuntimeError("CUDA demandé mais indisponible.")
     device = torch.device("cuda" if use_cuda else "cpu")
+    dependencies = check_dependencies()
     train, val = verified_split(args.data_dir, protocol)
-    out = args.output or ROOT / "results" / (
-        "benchmark_lr_fixed" if args.mode == "fixed" else "benchmark_lr_variable"
-    )
-    config_bytes = json.dumps(protocol, ensure_ascii=False, separators=(",", ":")).encode()
-    split_bytes = json.dumps(read(SPLIT), ensure_ascii=False, separators=(",", ":")).encode()
-    signature = {"mode": args.mode, "protocol_sha256": hashlib.sha256(config_bytes + split_bytes).hexdigest(),
-                 "split_sha256": hashlib.sha256(split_bytes).hexdigest()}
-    machine = {"platform": platform.platform(), "python": platform.python_version(),
-               "device": str(device), "gpu": torch.cuda.get_device_name() if use_cuda else None,
-               "dependencies": dependencies, "threads": args.threads, "workers": args.workers}
+    split_bytes = fingerprint(read(SPLIT))
+    signature = {
+        "mode": args.mode,
+        "protocol_sha256": hashlib.sha256(fingerprint(protocol) + split_bytes).hexdigest(),
+        "split_sha256": hashlib.sha256(split_bytes).hexdigest(),
+    }
+    if args.mode == "fixed":
+        signature["fixed_lr"] = protocol["initial_lr"]
+    else:
+        signature["policy_sha256"] = hashlib.sha256(fingerprint(POLICY)).hexdigest()
+    machine = dict(device=str(device), gpu=torch.cuda.get_device_name() if use_cuda else None,
+                   platform=platform.platform(), python=platform.python_version(), dependencies=dependencies,
+                   threads=args.threads, workers=args.workers)
+    out = args.output or ROOT / "results" / ("benchmark_lr_fixed_0.0001" if args.mode == "fixed" else "benchmark_lr_adaptive")
     states = {}
     if args.resume:
         metadata = read(out / "run.json")
-        if metadata["signature"] != signature:
-            raise ValueError("Le mode ou le protocole ne correspond pas aux sauvegardes.")
+        if metadata["signature"] != signature or metadata["models"] != selected:
+            raise ValueError("Protocole ou sélection de modèles incompatible avec la reprise.")
         metadata["machines"].append(machine)
+        for name in selected:
+            path = out / f"{name}.pth"
+            if path.exists():
+                saved = torch.load(path, map_location="cpu", weights_only=True)
+                states[name] = {key: saved[key] for key in ("history", "stop")}
+                del saved
+        update_reports(out, states)
     else:
         out.mkdir(parents=True, exist_ok=False)
-        metadata = {"signature": signature, "machines": [machine]}
-        if args.import_patience10:
-            states, previous_machines = import_patience10(args.import_patience10, out, protocol, args.mode)
-            metadata["machines"] = [*previous_machines, machine]
-            metadata["imported_patience10"] = True
-            update_reports(out, states)
+        metadata = dict(signature=signature, models=selected, policy=POLICY, machines=[machine])
     write(out / "run.json", metadata)
     print(f"{args.mode}: {len(train)} train, {len(val)} validation, {device}, {out}", flush=True)
+
     options = dict(batch_size=protocol["batch_size"], num_workers=args.workers,
                    persistent_workers=args.workers > 0)
     train_loader = DataLoader(train, sampler=RandomSampler(train, generator=torch.Generator()),
                               generator=torch.Generator().manual_seed(protocol["seed"]), **options)
     val_loader = DataLoader(val, generator=torch.Generator().manual_seed(protocol["seed"]), **options)
     criterion = nn.CrossEntropyLoss()
-    if args.resume:
-        for name in protocol["models"]:
-            path = out / f"{name}.pth"
-            if path.exists():
-                saved = torch.load(path, map_location="cpu", weights_only=True)
-                states[name] = {k: saved[k] for k in ("history", "stop")}
-        update_reports(out, states)
-
-    for model_index, (name, (_, expected, weights)) in enumerate(protocol["models"].items()):
-        path = out / f"{name}.pth"
-        if name in states and states[name]["stop"]:
+    for index, (name, (_, expected, weights)) in enumerate(protocol["models"].items()):
+        if name not in selected or (name in states and states[name]["stop"]):
             continue
+        path = out / f"{name}.pth"
         torch.manual_seed(protocol["seed"])
         model = load_model(name, 11, pretrained=not path.exists(), weight_id=weights)
         params = sum(p.numel() for p in model.parameters())
-        if params != expected or not 100_000 <= params <= 8_000_000:
+        if params != expected:
             raise ValueError(f"{name} : attendu {expected} paramètres, obtenu {params}.")
         model.to(device, dtype=torch.float32, memory_format=torch.channels_last)
         optimizer = torch.optim.Adam(model.parameters(), lr=protocol["initial_lr"])
-        scheduler = (torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, **protocol["scheduler"])
-                     if args.mode == "plateau" else None)
+        controller = None
+        if args.mode == "adaptive":
+            head = [m for m in model.modules() if isinstance(m, (nn.Linear, nn.Conv2d))][-1]
+            if head.weight.shape[0] != 11:
+                raise ValueError(f"{name} : tête de classification non reconnue.")
+            controller = AdaptiveRate(optimizer, head.weight, protocol["scheduler"])
         history, best_weights, reference, stale = [], None, -math.inf, 0
         if path.exists():
             saved = torch.load(path, map_location="cpu", weights_only=True)
             model.load_state_dict(saved["weights"])
             optimizer.load_state_dict(saved["optimizer"])
-            if scheduler is not None:
-                scheduler.load_state_dict(saved["scheduler"])
+            if controller is not None:
+                controller.load_state_dict(saved["scheduler"])
             history, best_weights, reference, stale = (
                 saved["history"], saved["best_weights"], saved["reference"], saved["stale"])
             del saved
-        best = max((r["frugality"] for r in history), default=-math.inf)
+        best = max((row["frugality"] for row in history), default=-math.inf)
         for epoch in range(len(history) + 1, protocol["max_epochs"] + 1):
-            # Les tirages sont reconstruits à partir du modèle et de l'époque à la reprise.
-            seed = protocol["seed"] + 10_000 * model_index + 3 * epoch
+            seed = protocol["seed"] + 10_000 * index + 3 * epoch
             torch.manual_seed(seed)
             started = perf_counter()
-            lr = optimizer.param_groups[0]["lr"]
-            train_loss = run_epoch(model, train_loader, criterion, device, optimizer, seed)
+            if controller is not None:
+                controller.rates.clear()
+            train_loss = run_epoch(model, train_loader, criterion, device, optimizer, seed, controller)
             val_loss, accuracy, f1 = run_epoch(model, val_loader, criterion, device)
             frugality = f1 - 0.3 * params / (1_000_000 + params)
             if frugality > best:
                 best = frugality
-                best_weights = {key: value.detach().cpu().clone() for key, value in model.state_dict().items()}
+                best_weights = {k: v.detach().cpu().clone() for k, v in model.state_dict().items()}
             reference, stale, stop = progress(protocol, frugality, reference, stale, epoch)
-            if scheduler is not None:
-                scheduler.step(frugality)
-            row = dict(model=name, epoch=epoch, params=params, lr=lr, next_lr=optimizer.param_groups[0]["lr"],
+            if controller is not None:
+                controller.validate(frugality)
+            rates = controller.rates if controller is not None else [optimizer.param_groups[0]["lr"]]
+            row = dict(model=name, epoch=epoch, params=params, lr=rates[0],
+                       min_lr=min(rates), max_lr=max(rates), mean_lr=sum(rates) / len(rates),
+                       next_lr=optimizer.param_groups[0]["lr"],
                        train_loss=train_loss, val_loss=val_loss, accuracy=accuracy, f1=f1,
                        frugality=frugality, seconds=perf_counter() - started)
+            if controller is not None:
+                row["lr_ceiling"] = controller.ceiling
             history.append(row)
             save_checkpoint(path, dict(weights=model.state_dict(), best_weights=best_weights,
-                                       optimizer=optimizer.state_dict(),
-                                       scheduler=scheduler.state_dict() if scheduler is not None else None,
+                                       optimizer=optimizer.state_dict(), scheduler=controller.state_dict() if controller else None,
                                        history=history, reference=reference, stale=stale, stop=stop))
-            states[name] = {"history": history, "stop": stop}
+            states[name] = dict(history=history, stop=stop)
             update_reports(out, states)
             print(f"{name:19} époque {epoch:2} | F1 {f1:.4f} | frugalité {frugality:.4f} | "
-                  f"LR {lr:.2g} → {row['next_lr']:.2g} | {row['seconds']:.0f}s"
+                  f"LR {row['min_lr']:.6g} à {row['max_lr']:.6g} | {row['seconds']:.0f}s"
                   + (f" | arrêt : {stop}" if stop else ""), flush=True)
             if stop:
                 break
-        # Libère la mémoire du réseau précédent avant de construire le suivant.
-        del model, optimizer, scheduler, best_weights
-    from plot_benchmark_lr import plot_runs
-    plot_runs([out], out)
+        del controller, optimizer, model, best_weights
 
 
 def main():
     os.environ.setdefault("CUBLAS_WORKSPACE_CONFIG", ":4096:8")
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--mode", choices=MODES, required=True)
+    parser.add_argument("--models", nargs="+", choices=tuple(read(CONFIG)["models"]))
     parser.add_argument("--data-dir", type=Path, default=ROOT / "data/food-11")
     parser.add_argument("--output", type=Path)
-    continuation = parser.add_mutually_exclusive_group()
-    continuation.add_argument("--resume", action="store_true")
-    continuation.add_argument("--import-patience10", type=Path, metavar="ANCIEN_DOSSIER")
+    parser.add_argument("--resume", action="store_true")
     parser.add_argument("--device", choices=("auto", "cpu", "cuda"), default="auto")
     parser.add_argument("--workers", type=int, default=4)
     parser.add_argument("--threads", type=int, default=4)
     args = parser.parse_args()
-    if args.workers < 0 or args.threads < 1:
-        parser.error("Nombre de workers ou threads invalide.")
+    if args.workers < 0 or args.threads < 1 or (args.models and len(args.models) != len(set(args.models))):
+        parser.error("Nombre de threads, de workers ou sélection de modèles invalide.")
     run(args)
 
 

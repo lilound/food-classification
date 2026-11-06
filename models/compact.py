@@ -10,10 +10,6 @@ BUILDERS = {
     "shufflenet10": models.shufflenet_v2_x1_0,
     "squeezenet": models.squeezenet1_1,
     "mnasnet05": models.mnasnet0_5,
-}
-
-LR_BUILDERS = {
-    **BUILDERS,
     "mobilenet_v2": models.mobilenet_v2,
     "regnet_y_400mf": models.regnet_y_400mf,
     "efficientnet_b0": models.efficientnet_b0,
@@ -23,7 +19,7 @@ LR_BUILDERS = {
 
 
 def load_model(name, num_classes, *, pretrained=True, weight_id="DEFAULT"):
-    builder = LR_BUILDERS[name]
+    builder = BUILDERS[name]
     weights = models.get_model_weights(builder)[weight_id] if pretrained else None
     model = builder(weights=weights)
 

@@ -48,14 +48,14 @@ générés sont locaux et ignorés par Git.
 Depuis la racine du dépôt, pour réexporter les essais locaux :
 
 ```bash
-python export_benchmark.py results/benchmark_lr_fixed_p6 results/benchmark_lr_variable_p6 results/benchmark_lr_adaptive
+python export_benchmark.py results/benchmark_lr_fixed_0.0001 results/benchmark_lr_adaptive
 ```
 
 Lorsque l'autre PC renvoie ses résultats, copier ses fichiers `run.json`,
-`history.json` et `summary.json` dans `results/benchmark_lr_variable_p6/`
+`history.json` et `summary.json` dans `results/benchmark_lr_adaptive/`
 ou passer leur dossier réel à la commande. Un dossier sans résultats est
 signalé dans l'index et sera intégré dès que ses trois fichiers sont présents.
-N'utiliser qu'un dossier par mode et le même protocole à patience 6.
+N'utiliser qu'un dossier par mode et le même protocole à patience 6. Le mode fixe doit utiliser un taux de 0,0001.
 Si l'actualisation automatique tourne sur ce PC, il suffit de copier les
 fichiers : le dossier est régénéré au prochain passage.
 
