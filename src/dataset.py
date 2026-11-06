@@ -18,10 +18,10 @@ def find_data_folder(root, possible_names):
     raise FileNotFoundError(f"Dossier introuvable dans {root}")
 
 
-def get_transforms(train=False):
+def get_transforms(train=False, size=224):
     # Préparation des images pour le réseau de neurones
 
-    operations = [transforms.Resize((224, 224))]
+    operations = [transforms.Resize((size, size))]
 
     if train:
         operations.append(transforms.RandomHorizontalFlip())

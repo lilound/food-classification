@@ -76,6 +76,116 @@ Les résultats sont créés dans `results/` :
 - `<modèle>.pth` : paramètres appris du modèle ;
 - `predictions_<modèle>.json` : prédictions sur le jeu de test, à déposer sur le site d’évaluation du challenge.
 
+## Comparer les réseaux compacts
+
+```bash
+python benchmark_compact.py --epochs 5 --size 128 --output results/compact-128-seed42 --predict
+```
+
+Ce benchmark compare MobileNetV3 Small, ShuffleNetV2 ×0,5 et ×1,0, SqueezeNet 1.1
+et MNASNet 0.5 avec des poids ImageNet et une tête adaptée aux 11 classes.
+Il réentraîne MobileNet comme référence sur la même séparation et avec les mêmes
+réglages. Les fichiers d'apprentissage identiques (SHA-256) restent dans le même
+sous-ensemble. Le nombre de paramètres inclut la tête **Food-11**, et le score
+de frugalité utilise ce total en millions.
+
+Le dossier de sortie doit être nouveau. Il contient le découpage
+(`split.json`), la configuration (`config.json`), les scores par époque
+(`history.json`), le classement par meilleur score de validation
+(`summary.json`) et les poids correspondants. L'option `--predict` génère
+le JSON du meilleur candidat compact sur les images du test officiel.
+Les scores mesurés par ce script sont des scores de validation locale.
+
+Utilisez `--models mobilenet shufflenet05` pour limiter la comparaison à
+deux réseaux, ou `--help` pour afficher les autres réglages.
+
+Pour prolonger une comparaison terminée sans effacer ses résultats :
+
+```bash
+python benchmark_compact.py --resume-from results/compact-128-seed42 \
+  --epochs 7 --size 128 --output results/compact-128-seed42-e7 --predict
+```
+
+`--epochs 7` signifie sept époques au total. Le script recharge les poids et
+l'état d'Adam depuis les fichiers `last_<modèle>.pth`. Une ancienne expérience
+sans ces fichiers peut être reprise si ses meilleurs poids correspondent à la
+dernière époque de chaque modèle ; Adam est alors réinitialisé.
+Avec `--patience 3 --min-delta 0.002`, l'entraînement s'arrête si aucun
+modèle n'améliore d'au moins 0,002 son meilleur score de frugalité pendant
+trois tours complets.
+
+`--stop-on-drop` est une autre option : chaque modèle s'arrête dès qu'il
+n'établit plus de record de frugalité. Les autres continuent, et les meilleurs
+poids des modèles arrêtés restent disponibles pour l'export.
+
+Les mesures de cette comparaison sont dans [RESULTS.md](RESULTS.md).
+
+Pour préparer les trois meilleurs candidats au formulaire officiel :
+
+```bash
+python export_compact.py results/compact-128-seed42-e7 --top 3
+```
+
+Le sous-dossier `submission/` contient les JSON et la fiche
+`formulaire.md`, avec le nombre de paramètres en millions et les mots-clés
+pour chaque modèle. La fiche distingue validation locale et test officiel.
+
+## Comparer taux fixe et taux variable sur deux PC
+
+Sur la branche `taux_apprentissage_variable`, les deux modes utilisent
+`benchmark_lr.py` et le même protocole versionné dans `benchmarks/lr/`.
+Installez les versions épinglées dans un environnement Python compatible
+(Python 3.14 utilisé pour préparer et vérifier le benchmark). Utilisez la
+distribution PyTorch CPU ou CUDA adaptée à votre PC, aux versions indiquées.
+
+```bash
+python -m pip install -r benchmarks/lr/requirements.txt
+```
+
+Placez la distribution officielle Food-11 dans `data/food-11/`, ou ajoutez
+`--data-dir chemin/vers/food-11` à la commande. Le script vérifie les noms,
+l'empreinte du contenu et l'absence de fichiers identiques de part et d'autre
+du découpage figé. Torchvision télécharge les poids ImageNet au premier besoin.
+
+Sur le premier PC (Adam à `1e-4` sans scheduler) :
+
+```bash
+python benchmark_lr.py --mode fixed
+```
+
+Sur le deuxième PC (Adam au même taux initial, avec `ReduceLROnPlateau`) :
+
+```bash
+python benchmark_lr.py --mode plateau
+```
+
+Les deux modes comparent les mêmes dix réseaux, de 353 067 à 6 527 275
+paramètres. Chaque réseau s'arrête individuellement après dix époques sans
+progrès d'au moins 0,001, jamais avant l'époque 12, ou au plafond de 60 époques.
+La meilleure frugalité brute est sauvegardée indépendamment de ce seuil. La
+patience ne se remet pas à zéro lors d'un changement de taux.
+
+Le script sélectionne CUDA si disponible, sinon le CPU. Sur CPU, la durée
+totale peut atteindre plusieurs heures. En cas d'interruption, relancez la
+même commande avec `--resume` pour reprendre à la dernière époque sauvegardée,
+avec l'état d'Adam et celui du scheduler. N'exécutez pas deux commandes
+simultanément dans le même dossier de résultats.
+
+Les dossiers locaux `results/benchmark_lr_fixed/` et
+`results/benchmark_lr_variable/` contiennent `run.json`, `history.json`,
+`summary.json`, les poids et, en fin de run, le graphique du mode.
+Pour comparer les deux modes, transférez les trois JSON de chaque PC, sans les
+poids. Une fois les fichiers réunis, lancez :
+
+```bash
+python plot_benchmark_lr.py results/benchmark_lr_fixed results/benchmark_lr_variable --output results/comparaison_lr
+```
+
+Cette commande produit deux graphiques PNG et SVG sur des axes communs,
+ainsi qu'un comparatif par modèle au meilleur score et à la dernière époque
+commune. Les durées dépendent du PC et ne servent pas à attribuer un gain au
+scheduler. Les scores sont des scores de validation locale.
+
 ## Échéances et livrables
 
 - **Date limite :** 15 novembre 2026.
@@ -95,6 +205,9 @@ Les résultats sont créés dans `results/` :
 - Remplacer le taux d’apprentissage fixe par un taux variable.
 - Changer la luminosité, le contraste, les couleurs
 - Tester d’autres modèles :
+
+Les tailles ci-dessous sont celles des modèles avec leur tête ImageNet.
+Pour le score du challenge, utilisez le nombre de paramètres après adaptation à Food-11.
 
 | Modèle | Paramètres (M) | Pénalité Frugality | Priorité |
 |--------|----------------|-------------------|----------|
