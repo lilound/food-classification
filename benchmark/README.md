@@ -1,5 +1,33 @@
 # Dossier du benchmark Food-11
 
+## Lancer tous les essais et préparer l'archive
+
+Depuis la racine du dépôt, installez les dépendances avec
+`python -m pip install -r benchmarks/lr/requirements.txt` et placez le
+dataset officiel dans `data/food-11/`. Puis lancez :
+
+```bash
+python lancer_benchmarks.py
+```
+
+La commande lance les trois modes (`fixed`, `plateau`, `adaptive`), avec dix
+modèles par mode. Chaque essai dispose de son dossier et sauvegarde ses
+checkpoints dans `results/benchmark_nuit/`. Par défaut, un seul essai est
+attribué à chaque GPU CUDA visible et les autres utilisent le CPU. Avec un
+seul GPU, `--device cuda --jobs 1` permet d'enchaîner les trois sur le GPU.
+Pour lancer seulement les deux méthodes variables, ajoutez
+`--modes plateau adaptive`. Sur CPU, l'ensemble peut dépasser une nuit.
+
+Pendant le calcul, `benchmark/nuit/` reçoit les historiques, les figures et
+les journaux. Quand les essais se terminent, le lanceur crée
+`benchmark/nuit.zip`, sans dataset ni fichiers de poids. En cas d'erreur
+d'un essai, les autres continuent et `execution.json` indique lesquels sont
+terminés. Un arrêt avec Ctrl+C produit aussi l'archive des époques déjà
+sauvegardées. Pour reprendre, relancez la même commande avec `--resume`
+et les mêmes modes : les essais déjà terminés sont conservés.
+
+## Structure des résultats
+
 Après export, ouvrir [index.md](index.md) pour accéder aux résultats
 disponibles et voir quels essais sont encore en cours.
 

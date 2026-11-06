@@ -224,6 +224,9 @@ Le [dossier benchmark](benchmark/README.md) rassemble les historiques JSON/CSV,
 les courbes par modèle et le diagramme d'ensemble pour le rendu. Le guide
 indique comment y intégrer les résultats du deuxième PC.
 
+Pour lancer les trois modes en une commande et préparer l'archive
+`benchmark/nuit.zip`, utilisez `python lancer_benchmarks.py`.
+
 ## Échéances et livrables
 
 - **Date limite :** 15 novembre 2026.
