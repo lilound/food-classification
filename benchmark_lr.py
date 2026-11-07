@@ -24,7 +24,7 @@ ROOT = Path(__file__).resolve().parent
 KIT = ROOT / "benchmarks/lr"
 CONFIG = KIT / "protocol.json"
 SPLIT = KIT / "split.json"
-MODES = ("fixed", "adaptive")
+MODES = ("fixed", "adaptive", "cosine")
 
 POLICY = {"gain": 0.02, "smoothing": 0.95, "max_lr_factor": 3.0}
 
@@ -215,12 +215,16 @@ def run(args):
     }
     if args.mode == "fixed":
         signature["fixed_lr"] = protocol["initial_lr"]
-    else:
+    elif args.mode == "adaptive":
         signature["policy_sha256"] = hashlib.sha256(fingerprint(POLICY)).hexdigest()
     machine = dict(device=str(device), gpu=torch.cuda.get_device_name() if use_cuda else None,
                    platform=platform.platform(), python=platform.python_version(), dependencies=dependencies,
                    threads=args.threads, workers=args.workers)
-    out = args.output or ROOT / "results" / ("benchmark_lr_fixed_0.0001" if args.mode == "fixed" else "benchmark_lr_adaptive")
+    out = args.output or ROOT / "results" / {
+        "fixed": "benchmark_lr_fixed_0.0001",
+        "adaptive": "benchmark_lr_adaptive",
+        "cosine": "benchmark_lr_cosine",
+    }[args.mode]
     states = {}
     if args.resume:
         metadata = read(out / "run.json")
@@ -258,11 +262,15 @@ def run(args):
         model.to(device, dtype=torch.float32, memory_format=torch.channels_last)
         optimizer = torch.optim.Adam(model.parameters(), lr=protocol["initial_lr"])
         controller = None
+        scheduler = None
         if args.mode == "adaptive":
             head = [m for m in model.modules() if isinstance(m, (nn.Linear, nn.Conv2d))][-1]
             if head.weight.shape[0] != 11:
                 raise ValueError(f"{name} : tête de classification non reconnue.")
             controller = AdaptiveRate(optimizer, head.weight, protocol["scheduler"])
+        elif args.mode == "cosine":
+            scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+                optimizer, T_max=protocol["max_epochs"], eta_min=protocol["scheduler"]["min_lr"])
         history, best_weights, reference, stale = [], None, -math.inf, 0
         if path.exists():
             saved = torch.load(path, map_location="cpu", weights_only=True)
@@ -270,6 +278,8 @@ def run(args):
             optimizer.load_state_dict(saved["optimizer"])
             if controller is not None:
                 controller.load_state_dict(saved["scheduler"])
+            elif scheduler is not None:
+                scheduler.load_state_dict(saved["scheduler"])
             history, best_weights, reference, stale = (
                 saved["history"], saved["best_weights"], saved["reference"], saved["stale"])
             del saved
@@ -280,6 +290,7 @@ def run(args):
             started = perf_counter()
             if controller is not None:
                 controller.rates.clear()
+            epoch_lr = optimizer.param_groups[0]["lr"]
             train_loss = run_epoch(model, train_loader, criterion, device, optimizer, seed, controller)
             val_loss, accuracy, f1 = run_epoch(model, val_loader, criterion, device)
             frugality = f1 - 0.3 * params / (1_000_000 + params)
@@ -289,7 +300,9 @@ def run(args):
             reference, stale, stop = progress(protocol, frugality, reference, stale, epoch)
             if controller is not None:
                 controller.validate(frugality)
-            rates = controller.rates if controller is not None else [optimizer.param_groups[0]["lr"]]
+            elif scheduler is not None:
+                scheduler.step()
+            rates = controller.rates if controller is not None else [epoch_lr]
             row = dict(model=name, epoch=epoch, params=params, lr=rates[0],
                        min_lr=min(rates), max_lr=max(rates), mean_lr=sum(rates) / len(rates),
                        next_lr=optimizer.param_groups[0]["lr"],
@@ -299,7 +312,7 @@ def run(args):
                 row["lr_ceiling"] = controller.ceiling
             history.append(row)
             save_checkpoint(path, dict(weights=model.state_dict(), best_weights=best_weights,
-                                       optimizer=optimizer.state_dict(), scheduler=controller.state_dict() if controller else None,
+                                       optimizer=optimizer.state_dict(), scheduler=(controller or scheduler).state_dict() if controller or scheduler else None,
                                        history=history, reference=reference, stale=stale, stop=stop))
             states[name] = dict(history=history, stop=stop)
             update_reports(out, states)
@@ -308,7 +321,7 @@ def run(args):
                   + (f" | arrêt : {stop}" if stop else ""), flush=True)
             if stop:
                 break
-        del controller, optimizer, model, best_weights
+        del controller, scheduler, optimizer, model, best_weights
 
 
 def main():

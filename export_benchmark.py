@@ -20,6 +20,7 @@ SPLIT = ROOT / "benchmarks/lr/split.json"
 MODES = {
     "fixed": ("Taux fixe", "#3165A7", "-"),
     "adaptive": ("Taux adaptatif · par lot", "#187455", "-."),
+    "cosine": ("Taux cosinus", "#B55400", "--"),
 }
 
 

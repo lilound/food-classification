@@ -26,11 +26,7 @@ def devices(kind, jobs):
 
 
 def command(mode, source, args):
-    base = [sys.executable, "-u"]
-    if mode == "adaptive":
-        base += [str(ROOT / "benchmark_lr_adaptive.py")]
-    else:
-        base += [str(ROOT / "benchmark_lr.py"), "--mode", mode]
+    base = [sys.executable, "-u", str(ROOT / "benchmark_lr.py"), "--mode", mode]
     base += ["--data-dir", str(args.data_dir.resolve()), "--output", str(source.resolve()),
              "--threads", str(args.threads), "--workers", str(args.workers)]
     if source.exists():
@@ -196,7 +192,7 @@ def main():
     parser.add_argument("--workers", type=int, default=0)
     parser.add_argument("--data-dir", type=Path, default=ROOT / "data/food-11")
     parser.add_argument("--runs", type=Path, default=ROOT / "results/benchmark_nuit")
-    parser.add_argument("--output", type=Path, default=ROOT / "benchmark/nuit")
+    parser.add_argument("--output", type=Path, default=ROOT / "resultats_benchmark/nuit")
     parser.add_argument("--resume", action="store_true")
     args = parser.parse_args()
     if len(set(args.modes)) != len(args.modes) or min(args.jobs, args.threads) < 1 or args.workers < 0:

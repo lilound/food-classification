@@ -76,9 +76,9 @@ Les résultats sont créés dans `results/` :
 - `<modèle>.pth` : paramètres appris du modèle ;
 - `predictions_<modèle>.json` : prédictions sur le jeu de test, à déposer sur le site d’évaluation du challenge.
 
-## Comparer les modèles : taux fixe et adaptatif
+## Comparer les modèles : taux fixe, adaptatif et cosinus
 
-Les deux modes utilisent `benchmark_lr.py` et le découpage figé dans
+Les trois modes utilisent `benchmark_lr.py` et le découpage figé dans
 `benchmarks/lr/`. Installez les dépendances et placez Food-11 dans
 `data/food-11/` (ou utilisez `--data-dir`). Les poids ImageNet sont téléchargés
 au premier besoin.
@@ -87,30 +87,33 @@ au premier besoin.
 python -m pip install -r benchmarks/lr/requirements.txt
 python benchmark_lr.py --mode fixed
 python benchmark_lr.py --mode adaptive
+python benchmark_lr.py --mode cosine
 ```
 
 Le mode fixe utilise Adam avec un taux de **0,0001**. Le mode adaptatif
 commence à **0,0001** et ajuste le taux avant chaque lot selon l'alignement
 entre le gradient et le déplacement précédent. Il conserve son plafond,
-baissé lorsque la frugalité de validation stagne. Les deux modes partent donc du même taux initial.
+baissé lorsque la frugalité de validation stagne. Le mode cosinus réduit le taux
+à chaque époque de 0,0001 vers 0,000001 sur 60 époques ; l'arrêt anticipé peut
+intervenir avant. Les trois modes partent du même taux initial.
 
 Les dix modèles sont entraînés un par un, jusqu'à 60 époques, avec un arrêt
 individuel après six époques sans progrès suffisant et jamais avant 12 époques.
 La sortie indique le F1, la frugalité et les taux minimum et maximum par époque.
 Pour limiter les modèles, ajoutez par exemple `--models shufflenet05 mobilenet`.
 
-Les résultats et checkpoints sont écrits dans `results/benchmark_lr_fixed_0.0001/`
-ou `results/benchmark_lr_adaptive/`. Pour reprendre après interruption, relancez
+Les résultats et checkpoints sont écrits dans `results/benchmark_lr_fixed_0.0001/`,
+`results/benchmark_lr_adaptive/` ou `results/benchmark_lr_cosine/`. Pour reprendre après interruption, relancez
 la même commande avec `--resume` et la même sélection de modèles. Les anciens
 résultats restent intacts, mais un ancien taux fixe ou plateau ne peut pas être
 repris avec le nouveau mode fixe. Ne lancez pas deux processus dans le même dossier.
 Le script utilise CUDA si disponible, sinon le CPU ; un benchmark CPU peut durer
 plusieurs heures.
 
-Pour générer les graphiques et tableaux à partir des deux dossiers :
+Pour générer les graphiques et tableaux à partir des trois dossiers :
 
 ```bash
-python export_benchmark.py results/benchmark_lr_fixed_0.0001 results/benchmark_lr_adaptive
+python export_benchmark.py results/benchmark_lr_fixed_0.0001 results/benchmark_lr_adaptive results/benchmark_lr_cosine
 ```
 
 Voir le [guide des résultats](resultats_benchmark/README.md). Les résultats historiques
@@ -119,7 +122,7 @@ des modèles compacts sont conservés dans [RESULTS.md](RESULTS.md) ;
 résultats au format de `benchmark_compact.py`.
 
 Pour lancer les trois modes en une commande et préparer l'archive
-`benchmark/nuit.zip`, utilisez `python lancer_benchmarks.py`.
+`resultats_benchmark/nuit.zip`, utilisez `python lancer_benchmarks.py`.
 
 ## Échéances et livrables
 

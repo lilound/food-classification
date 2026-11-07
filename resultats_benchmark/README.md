@@ -10,17 +10,17 @@ dataset officiel dans `data/food-11/`. Puis lancez :
 python lancer_benchmarks.py
 ```
 
-La commande lance les trois modes (`fixed`, `plateau`, `adaptive`), avec dix
+La commande lance les trois modes (`fixed`, `adaptive`, `cosine`), avec dix
 modèles par mode. Chaque essai dispose de son dossier et sauvegarde ses
 checkpoints dans `results/benchmark_nuit/`. Par défaut, un seul essai est
 attribué à chaque GPU CUDA visible et les autres utilisent le CPU. Avec un
 seul GPU, `--device cuda --jobs 1` permet d'enchaîner les trois sur le GPU.
 Pour lancer seulement les deux méthodes variables, ajoutez
-`--modes plateau adaptive`. Sur CPU, l'ensemble peut dépasser une nuit.
+`--modes adaptive cosine`. Sur CPU, l'ensemble peut dépasser une nuit.
 
-Pendant le calcul, `benchmark/nuit/` reçoit les historiques, les figures et
+Pendant le calcul, `resultats_benchmark/nuit/` reçoit les historiques, les figures et
 les journaux. Quand les essais se terminent, le lanceur crée
-`benchmark/nuit.zip`, sans dataset ni fichiers de poids. En cas d'erreur
+`resultats_benchmark/nuit.zip`, sans dataset ni fichiers de poids. En cas d'erreur
 d'un essai, les autres continuent et `execution.json` indique lesquels sont
 terminés. Un arrêt avec Ctrl+C produit aussi l'archive des époques déjà
 sauvegardées. Pour reprendre, relancez la même commande avec `--resume`
@@ -43,12 +43,12 @@ Le point sur une courbe indique le meilleur score. Les figures utilisent
 la frugalité de validation et les époques effectivement mesurées. Les PNG
 sont prêts à insérer ; les SVG conviennent à un rapport ou à un redimensionnement.
 Le dossier se partage sans images Food-11 ni fichiers de poids. Les fichiers
-générés sont locaux et ignorés par Git.
+générés peuvent être partagés via Git ; les poids `.pth` restent ignorés.
 
 Depuis la racine du dépôt, pour réexporter les essais locaux :
 
 ```bash
-python export_benchmark.py results/benchmark_lr_fixed_0.0001 results/benchmark_lr_adaptive
+python export_benchmark.py results/benchmark_lr_fixed_0.0001 results/benchmark_lr_adaptive results/benchmark_lr_cosine
 ```
 
 Lorsque l'autre PC renvoie ses résultats, copier ses fichiers `run.json`,
