@@ -22,49 +22,36 @@ MobileNetV3-Small, ImageNet pretrained, fine-tuning, 224x224, random horizontal 
 | Accuracy | 0.8889 |
 | Recall | 0.8822 |
 
-## Comparaison locale des modèles compacts (128 × 128)
+## Benchmark des taux d'apprentissage
 
-Même découpage de Food-11 pour les cinq modèles (10 637 images pour
-l'entraînement et 2 659 pour la validation, aucun doublon exact partagé).
-Poids ImageNet, 5 époques, Adam à `1e-4`, lots de 64, retournement horizontal.
-Les nombres de paramètres sont mesurés après adaptation aux 11 classes.
+Les dix modèles ont été comparés sur le même découpage local Food-11 :
+10 637 images d'entraînement et 2 659 de validation, en 128 × 128, avec
+les poids ImageNet et Adam. Trois taux ont été testés : fixe à `0,0001`,
+adaptatif par lot et décroissance cosinus. Chaque modèle s'arrête
+individuellement après stagnation, au plus tard à 60 époques.
 
-| Modèle | Paramètres | F1 macro | Frugalité |
-| --- | ---: | ---: | ---: |
-| SqueezeNet 1.1 | 728 139 | 0,7397 | **0,6133** |
-| MobileNetV3 Small (référence) | 1 529 131 | 0,7836 | 0,6022 |
-| ShuffleNetV2 ×1,0 | 1 264 879 | 0,7568 | 0,5892 |
-| ShuffleNetV2 ×0,5 | 353 067 | 0,6219 | 0,5436 |
-| MNASNet 0.5 | 951 603 | 0,4735 | 0,3273 |
+Le taux **adaptatif** obtient la meilleure frugalité pour **9 modèles sur 10**.
+L'exception est ShuffleNetV2 ×0,5, meilleur avec le taux fixe. En moyenne
+sur les dix modèles, les meilleures frugalités sont de **0,6635** en adaptatif,
+0,6555 en fixe et 0,6534 en cosinus.
 
-À 5 époques, SqueezeNet gagne 0,0111 de frugalité sur MobileNet malgré un F1
-inférieur de 0,0439, grâce à une réduction de 52 % du nombre de paramètres.
-Ce sont des résultats de validation locale, distincts des scores du leaderboard
-ci-dessus.
+### Top 5 par frugalité de validation
 
-En prolongeant jusqu'à l'époque 7 sur le même découpage, ShuffleNetV2 ×1,0
-passe en tête avec un F1 de 0,8191 et une frugalité de 0,6516. La première
-reprise conserve les poids de l'époque 5 et réinitialise Adam ; l'état de
-l'optimiseur est conservé pour la reprise suivante.
+Pour chaque modèle, on retient le meilleur résultat parmi les trois taux.
+L'époque indiquée est celle du meilleur score, pas nécessairement la dernière.
 
-## Comparaison officielle des cinq candidats
+| Rang | Modèle | Taux privilégié | Frugalité | F1 macro | Paramètres | Meilleure époque |
+| ---: | --- | --- | ---: | ---: | ---: | ---: |
+| 1 | ShuffleNetV2 ×0,5 | Fixe | **0,6965** | 0,7748 | 353 067 | 22 |
+| 2 | ShuffleNetV2 ×1,0 | Adaptatif | 0,6903 | 0,8578 | 1 264 879 | 8 |
+| 3 | MobileNetV2 | Adaptatif | 0,6822 | 0,8896 | 2 237 963 | 17 |
+| 4 | SqueezeNet 1.1 | Adaptatif | 0,6764 | 0,8029 | 728 139 | 10 |
+| 5 | MNASNet 0.5 | Adaptatif | 0,6751 | 0,8213 | 951 603 | 43 |
 
-Évaluation privée sur les 3 097 images du test, avec la mise à jour du
-leaderboard décochée. Pour chaque modèle, le JSON utilise les meilleurs
-poids de validation disponibles après la 19e époque de MNASNet.
-
-| Modèle | Époque | Paramètres (M) | F1 officiel | Accuracy officielle | Frugalité officielle |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| ShuffleNetV2 ×0,5 | 16 | 0.353067 | 0,7677 | 0,7911 | **0,6895** |
-| ShuffleNetV2 ×1,0 | 9 | 1.264879 | 0,8258 | 0,8544 | 0,6583 |
-| SqueezeNet 1.1 | 11 | 0.728139 | 0,7738 | 0,8030 | 0,6474 |
-| MobileNetV3 Small (nouvel essai à 128 × 128) | 10 | 1.529131 | 0,7783 | 0,8243 | 0,5969 |
-| MNASNet 0.5 | 19 | 0.951603 | 0,7415 | 0,7656 | 0,5952 |
-
-ShuffleNetV2 ×0,5 améliore de **0,0169** le score officiel de MobileNetV3
-Small à 224 × 224 (0,6726) et utilise environ 77 % de paramètres en moins.
-ShuffleNetV2 ×1,0 obtient le meilleur F1 des cinq essais compacts, mais sa
-pénalité de taille le classe deuxième en frugalité.
-
-Les prédictions envoyées, les réponses du serveur et la fiche de saisie
-sont conservées localement dans `results/compact-128-official-e19/`.
+Le nombre d'époques optimal dépend du modèle et du taux ; il sera étudié
+plus précisément avec les trois premiers modèles :
+[ShuffleNetV2 ×0,5](models/shufflenet05.md),
+[ShuffleNetV2 ×1,0](models/shufflenet10.md) et
+[MobileNetV2](models/mobilenet_v2.md). Ces résultats proviennent d'une seule
+comparaison en validation locale ; ils ne sont pas des scores du test officiel.
+Les graphiques et historiques sont dans `resultats_benchmark/nuit/`.
