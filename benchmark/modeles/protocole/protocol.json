@@ -1,0 +1,32 @@
+{
+  "dataset_sha256": "8114c015b7249acf7bff163b458639677342c2a8648c7b2411bb91c88f07177e",
+  "seed": 42,
+  "image_size": 128,
+  "batch_size": 64,
+  "initial_lr": 0.0001,
+  "min_epochs": 12,
+  "max_epochs": 60,
+  "early_stopping_patience": 6,
+  "min_delta": 0.001,
+  "scheduler": {
+    "mode": "max",
+    "factor": 0.5,
+    "patience": 3,
+    "threshold": 0.001,
+    "threshold_mode": "abs",
+    "cooldown": 0,
+    "min_lr": 0.000001
+  },
+  "models": {
+    "shufflenet05": ["ShuffleNetV2 ×0,5", 353067, "IMAGENET1K_V1"],
+    "squeezenet": ["SqueezeNet 1.1", 728139, "IMAGENET1K_V1"],
+    "mnasnet05": ["MNASNet 0.5", 951603, "IMAGENET1K_V1"],
+    "shufflenet10": ["ShuffleNetV2 ×1,0", 1264879, "IMAGENET1K_V1"],
+    "mobilenet": ["MobileNetV3 Small", 1529131, "IMAGENET1K_V1"],
+    "mobilenet_v2": ["MobileNetV2", 2237963, "IMAGENET1K_V2"],
+    "regnet_y_400mf": ["RegNetY-400MF", 3907995, "IMAGENET1K_V2"],
+    "efficientnet_b0": ["EfficientNet-B0", 4021639, "IMAGENET1K_V1"],
+    "mobilenet_v3_large": ["MobileNetV3 Large", 4216123, "IMAGENET1K_V2"],
+    "efficientnet_b1": ["EfficientNet-B1", 6527275, "IMAGENET1K_V2"]
+  }
+}

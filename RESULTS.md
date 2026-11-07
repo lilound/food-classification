@@ -33,3 +33,37 @@ MobileNetV3-Small, ImageNet pretrained, fine-tuning, 224x224, random horizontal 
 - Sur ces résultats, MobileNetV3-Small a une frugalité supérieure de 0,0639 ; ResNet18 a un F1 supérieur de 0,0297.
 - La date, la séparation des données, la graine, le matériel, la durée et les conditions complètes de chaque essai ne sont pas documentés. L’origine des scores et la méthode de calcul de la précision et du rappel ne sont pas précisées. Il faut les vérifier avant de conclure que les essais sont directement comparables.
 - Le code actuel calcule le F1 macro et la frugalité comme `F1 − 0,3 / (1 + 1 / paramètres en millions)` ; il ne calcule actuellement ni précision ni rappel. Il reste à confirmer que les scores ci-dessus proviennent de ce calcul.
+
+## Benchmark des taux d'apprentissage
+
+Les dix modèles ont été comparés sur le même découpage local Food-11 :
+10 637 images d'entraînement et 2 659 de validation, en 128 × 128, avec
+les poids ImageNet et Adam. Trois taux ont été testés : fixe à `0,0001`,
+adaptatif par lot et décroissance cosinus. Chaque modèle s'arrête
+individuellement après stagnation, au plus tard à 60 époques.
+
+Le taux **adaptatif** obtient la meilleure frugalité pour **9 modèles sur 10**.
+L'exception est ShuffleNetV2 ×0,5, meilleur avec le taux fixe. En moyenne
+sur les dix modèles, les meilleures frugalités sont de **0,6635** en adaptatif,
+0,6555 en fixe et 0,6534 en cosinus.
+
+### Top 5 par frugalité de validation
+
+Pour chaque modèle, on retient le meilleur résultat parmi les trois taux.
+L'époque indiquée est celle du meilleur score, pas nécessairement la dernière.
+
+| Rang | Modèle | Taux privilégié | Frugalité | F1 macro | Paramètres | Meilleure époque |
+| ---: | --- | --- | ---: | ---: | ---: | ---: |
+| 1 | ShuffleNetV2 ×0,5 | Fixe | **0,6965** | 0,7748 | 353 067 | 22 |
+| 2 | ShuffleNetV2 ×1,0 | Adaptatif | 0,6903 | 0,8578 | 1 264 879 | 8 |
+| 3 | MobileNetV2 | Adaptatif | 0,6822 | 0,8896 | 2 237 963 | 17 |
+| 4 | SqueezeNet 1.1 | Adaptatif | 0,6764 | 0,8029 | 728 139 | 10 |
+| 5 | MNASNet 0.5 | Adaptatif | 0,6751 | 0,8213 | 951 603 | 43 |
+
+Le nombre d'époques optimal dépend du modèle et du taux ; il sera étudié
+plus précisément avec les trois premiers modèles :
+[ShuffleNetV2 ×0,5](models/shufflenet05.py),
+[ShuffleNetV2 ×1,0](models/shufflenet10.py) et
+[MobileNetV2](models/mobilenet_v2.py). Ces résultats proviennent d'une seule
+comparaison en validation locale ; ils ne sont pas des scores du test officiel.
+Les graphiques et historiques sont dans `benchmark/modeles/resultats/nuit/`.

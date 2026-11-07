@@ -67,14 +67,66 @@ Le programme entraîne le modèle, calcule ses scores sur une partie de `train/`
 
 Les principaux réglages se trouvent au début de `main.py` :
 
-- `MODEL_NAME` : modèle utilisé (`"mobilenet"` ou `"resnet"`) ;
+- `MODEL_NAME` : `"mobilenet"`, `"shufflenet05"`, `"shufflenet10"` ou `"mobilenet_v2"` ;
 - `EPOCHS` : nombre de passages sur les images d’entraînement ;
 - `BATCH_SIZE` : nombre d’images traitées ensemble.
+
+Les trois modèles retenus par le benchmark ont chacun leur fichier dans
+`models/` : `shufflenet05.py`, `shufflenet10.py` et `mobilenet_v2.py`.
+Ils chargent les poids ImageNet et adaptent la sortie aux classes Food-11.
+Leur taux privilégié est fixe pour ShuffleNet ×0,5 et adaptatif pour les deux
+autres ; `main.py` utilise toutefois son propre entraînement à taux fixe.
 
 Les résultats sont créés dans `results/` :
 
 - `<modèle>.pth` : paramètres appris du modèle ;
 - `predictions_<modèle>.json` : prédictions sur le jeu de test, à déposer sur le site d’évaluation du challenge.
+
+## Comparer les modèles : taux fixe, adaptatif et cosinus
+
+Les trois modes utilisent `benchmark/modeles/benchmark_lr.py` et le découpage figé dans
+`benchmark/modeles/protocole/`. Installez les dépendances et placez Food-11 dans
+`data/food-11/` (ou utilisez `--data-dir`). Les poids ImageNet sont téléchargés
+au premier besoin.
+
+```bash
+python -m pip install -r benchmark/modeles/protocole/requirements.txt
+python benchmark/modeles/benchmark_lr.py --mode fixed
+python benchmark/modeles/benchmark_lr.py --mode adaptive
+python benchmark/modeles/benchmark_lr.py --mode cosine
+```
+
+Le mode fixe utilise Adam avec un taux de **0,0001**. Le mode adaptatif
+commence à **0,0001** et ajuste le taux avant chaque lot selon l'alignement
+entre le gradient et le déplacement précédent. Il conserve son plafond,
+baissé lorsque la frugalité de validation stagne. Le mode cosinus réduit le taux
+à chaque époque de 0,0001 vers 0,000001 sur 60 époques ; l'arrêt anticipé peut
+intervenir avant. Les trois modes partent du même taux initial.
+
+Les dix modèles sont entraînés un par un, jusqu'à 60 époques, avec un arrêt
+individuel après six époques sans progrès suffisant et jamais avant 12 époques.
+La sortie indique le F1, la frugalité et les taux minimum et maximum par époque.
+Pour limiter les modèles, ajoutez par exemple `--models shufflenet05 mobilenet`.
+
+Les résultats et checkpoints sont écrits dans `benchmark/modeles/executions/benchmark_lr_fixed_0.0001/`,
+`benchmark/modeles/executions/benchmark_lr_adaptive/` ou `benchmark/modeles/executions/benchmark_lr_cosine/`. Pour reprendre après interruption, relancez
+la même commande avec `--resume` et la même sélection de modèles. Les anciens
+résultats restent intacts, mais un ancien taux fixe ou plateau ne peut pas être
+repris avec le nouveau mode fixe. Ne lancez pas deux processus dans le même dossier.
+Le script utilise CUDA si disponible, sinon le CPU ; un benchmark CPU peut durer
+plusieurs heures.
+
+Pour générer les graphiques et tableaux à partir des trois dossiers :
+
+```bash
+python benchmark/modeles/export_benchmark.py benchmark/modeles/executions/benchmark_lr_fixed_0.0001 benchmark/modeles/executions/benchmark_lr_adaptive benchmark/modeles/executions/benchmark_lr_cosine
+```
+
+Voir le [guide des résultats](benchmark/modeles/resultats/README.md) et les
+conclusions dans [RESULTS.md](RESULTS.md).
+
+Pour lancer les trois modes en une commande et préparer l'archive
+`benchmark/modeles/resultats/nuit.zip`, utilisez `python benchmark/modeles/lancer_benchmarks.py`.
 
 ## Échéances et livrables
 
@@ -110,6 +162,9 @@ Recomparer les finalistes. Les réglages optimaux peuvent différer selon l’ar
 - Remplacer le taux d’apprentissage fixe par un taux variable.
 - Changer la luminosité, le contraste, les couleurs
 - Tester d’autres modèles :
+
+Les tailles ci-dessous sont celles des modèles avec leur tête ImageNet.
+Pour le score du challenge, utilisez le nombre de paramètres après adaptation à Food-11.
 
 | Modèle | Paramètres (M) | Pénalité Frugality | Priorité |
 |--------|----------------|-------------------|----------|

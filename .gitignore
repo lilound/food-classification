@@ -14,6 +14,22 @@ __pycache__/
 *.pth
 *.pt
 
-# Résultats
-/results/*
-!/results/.gitkeep
+# Données et résultats locaux
+*.csv
+*.json
+!/benchmark/modeles/protocole/protocol.json
+!/benchmark/modeles/protocole/split.json
+/results/
+/benchmark/modeles/executions/
+/benchmark/modeles/resultats/nuit.zip
+/benchmark/modeles/resultats/nuit/journaux/
+/benchmark/modeles/resultats/nuit/index.md
+
+# Archives et figures locales du dossier benchmark
+/benchmark/index.md
+/benchmark/experiences/
+/benchmark/courbes_par_modele/
+/benchmark/comparaison/
+/benchmark/protocole/
+/benchmark/nuit/
+/benchmark/nuit.zip

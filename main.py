@@ -7,7 +7,9 @@ from pathlib import Path
 import torch
 
 from models.mobilenet import load_model as load_mobilenet
-from models.resnet import load_model as load_resnet
+from models.mobilenet_v2 import load_model as load_mobilenet_v2
+from models.shufflenet05 import load_model as load_shufflenet05
+from models.shufflenet10 import load_model as load_shufflenet10
 
 from src.dataset import find_data_folder, load_data, get_transforms
 from src.train import train
@@ -16,7 +18,7 @@ from src.evaluate import evaluate, predict_test
 
 # Configuration
 DATA_DIR = Path("data/food-11")
-MODEL_NAME = "mobilenet"  # "mobilenet" ou "resnet"
+MODEL_NAME = "mobilenet"  # mobilenet, mobilenet_v2, shufflenet05 ou shufflenet10
 EPOCHS = 5
 BATCH_SIZE = 32
 
@@ -31,14 +33,11 @@ def main():
     )
 
     # 2. Charger le modèle
-    if MODEL_NAME == "mobilenet":
-        model = load_mobilenet(len(classes))
-
-    elif MODEL_NAME == "resnet":
-        model = load_resnet(len(classes))
-
-    else:
+    loaders = {"mobilenet": load_mobilenet, "mobilenet_v2": load_mobilenet_v2,
+               "shufflenet05": load_shufflenet05, "shufflenet10": load_shufflenet10}
+    if MODEL_NAME not in loaders:
         raise ValueError("Modèle inconnu")
+    model = loaders[MODEL_NAME](len(classes))
 
     print(f"Paramètres de {MODEL_NAME} : {sum(p.numel() for p in model.parameters()):,}")
 
