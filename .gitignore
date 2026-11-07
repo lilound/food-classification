@@ -21,6 +21,8 @@ __pycache__/
 !/benchmark/modeles/protocole/split.json
 /results/
 /benchmark/modeles/executions/
+/benchmark/gel_couches/executions/
+/benchmark/gel_couches/fort/
 /benchmark/modeles/resultats/nuit.zip
 /benchmark/modeles/resultats/nuit/journaux/
 /benchmark/modeles/resultats/nuit/index.md
@@ -33,3 +35,8 @@ __pycache__/
 /benchmark/protocole/
 /benchmark/nuit/
 /benchmark/nuit.zip
+
+# Présentation locale
+/1.Comparaison Modèles/
+/2.Comparaison gel des couches.zip
+/2.Comparaison gel des couches/

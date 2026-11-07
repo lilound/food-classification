@@ -127,9 +127,30 @@ def verified_split(data_dir, protocol):
     return Subset(dataset, [paths[p] for p in train]), Subset(dataset, [paths[p] for p in val])
 
 
-def run_epoch(model, loader, criterion, device, optimizer=None, seed=None, controller=None):
+def freeze_early_layers(model, name, level="early"):
+    if level not in ("early", "strong", "more") or (level == "more" and name != "shufflenet05"):
+        raise ValueError(f"Niveau de gel inconnu : {level}")
+    if name in ("shufflenet05", "shufflenet10"):
+        modules = [model.conv1, model.stage2]
+        if level in ("strong", "more"):
+            modules.append(model.stage3)
+        if level == "more":
+            modules.append(model.stage4)
+    elif name == "mobilenet_v2":
+        modules = list(model.features[:14 if level == "strong" else 7])
+    else:
+        raise ValueError(f"Gel non défini pour {name}.")
+    for module in modules:
+        module.requires_grad_(False)
+        module.eval()
+    return modules
+
+
+def run_epoch(model, loader, criterion, device, optimizer=None, seed=None, controller=None, frozen_modules=()):
     training = optimizer is not None
     model.train(training)
+    for module in frozen_modules:
+        module.eval()
     loss_sum = torch.zeros((), device=device)
     predictions, targets = [], []
     if training:
@@ -216,6 +237,10 @@ def run(args):
         "protocol_sha256": hashlib.sha256(fingerprint(protocol) + split_bytes).hexdigest(),
         "split_sha256": hashlib.sha256(split_bytes).hexdigest(),
     }
+    if getattr(args, "freeze_early", False):
+        signature["freeze_early"] = {"early": "shufflenet-conv1-stage2_mobilenet-features-0-6-v1",
+                                     "strong": "shufflenet-conv1-stage2-stage3_mobilenet-features-0-13-v1",
+                                     "more": "shufflenet05-conv1-stage2-stage3-stage4-v1"}[getattr(args, "freeze_level", "early")]
     if args.mode == "fixed":
         signature["fixed_lr"] = protocol["initial_lr"]
     elif args.mode == "adaptive":
@@ -259,11 +284,14 @@ def run(args):
         path = out / f"{name}.pth"
         torch.manual_seed(protocol["seed"])
         model = load_model(name, 11, pretrained=not path.exists(), weight_id=weights)
+        frozen_modules = freeze_early_layers(model, name, getattr(args, "freeze_level", "early")) if getattr(args, "freeze_early", False) else ()
         params = sum(p.numel() for p in model.parameters())
         if params != expected:
             raise ValueError(f"{name} : attendu {expected} paramètres, obtenu {params}.")
         model.to(device, dtype=torch.float32, memory_format=torch.channels_last)
-        optimizer = torch.optim.Adam(model.parameters(), lr=protocol["initial_lr"])
+        optimizer = torch.optim.Adam((p for p in model.parameters() if p.requires_grad), lr=protocol["initial_lr"])
+        if frozen_modules:
+            print(f"{name}: {sum(p.numel() for p in model.parameters() if p.requires_grad)} paramètres entraînables / {params} au total", flush=True)
         controller = None
         scheduler = None
         if args.mode == "adaptive":
@@ -294,7 +322,10 @@ def run(args):
             if controller is not None:
                 controller.rates.clear()
             epoch_lr = optimizer.param_groups[0]["lr"]
-            train_loss = run_epoch(model, train_loader, criterion, device, optimizer, seed, controller)
+            if frozen_modules:
+                train_loss = run_epoch(model, train_loader, criterion, device, optimizer, seed, controller, frozen_modules=frozen_modules)
+            else:
+                train_loss = run_epoch(model, train_loader, criterion, device, optimizer, seed, controller)
             val_loss, accuracy, f1 = run_epoch(model, val_loader, criterion, device)
             frugality = f1 - 0.3 * params / (1_000_000 + params)
             if frugality > best:
@@ -335,12 +366,20 @@ def main():
     parser.add_argument("--data-dir", type=Path, default=ROOT / "data/food-11")
     parser.add_argument("--output", type=Path)
     parser.add_argument("--resume", action="store_true")
+    parser.add_argument("--freeze-early", action="store_true", help="Geler les premiers blocs des trois modèles retenus.")
+    parser.add_argument("--freeze-level", choices=("early", "strong", "more"), default="early")
     parser.add_argument("--device", choices=("auto", "cpu", "cuda"), default="auto")
     parser.add_argument("--workers", type=int, default=4)
     parser.add_argument("--threads", type=int, default=4)
     args = parser.parse_args()
     if args.workers < 0 or args.threads < 1 or (args.models and len(args.models) != len(set(args.models))):
         parser.error("Nombre de threads, de workers ou sélection de modèles invalide.")
+    if args.freeze_early and (not args.output or not args.models or any(name not in ("shufflenet05", "shufflenet10", "mobilenet_v2") for name in args.models)):
+        parser.error("Le gel exige --output et une sélection des trois modèles retenus.")
+    if args.freeze_level != "early" and not args.freeze_early:
+        parser.error("--freeze-level exige --freeze-early.")
+    if args.freeze_level == "more" and args.models != ["shufflenet05"]:
+        parser.error("Le gel more est défini uniquement pour shufflenet05.")
     run(args)
 
 
