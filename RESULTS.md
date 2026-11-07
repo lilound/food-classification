@@ -1,27 +1,3 @@
-## ResNet18
-
-ResNet18, transfer learning, Food-11
-
-| Metric | Value |
-| --- | ---: |
-| Frugality | 0.6087 |
-| F1 | 0.8841 |
-| Precision | 0.8489 |
-| Accuracy | 0.9064 |
-| Recall | 0.9223 |
-
-## MobileNetV3-Small
-
-MobileNetV3-Small, ImageNet pretrained, fine-tuning, 224x224, random horizontal flip, Adam lr=1e-4, 5 epochs
-
-| Metric | Value |
-| --- | ---: |
-| Frugality | 0.6726 |
-| F1 | 0.8544 |
-| Precision | 0.8284 |
-| Accuracy | 0.8889 |
-| Recall | 0.8822 |
-
 ## Benchmark des taux d'apprentissage
 
 Les dix modèles ont été comparés sur le même découpage local Food-11 :
@@ -50,8 +26,8 @@ L'époque indiquée est celle du meilleur score, pas nécessairement la dernièr
 
 Le nombre d'époques optimal dépend du modèle et du taux ; il sera étudié
 plus précisément avec les trois premiers modèles :
-[ShuffleNetV2 ×0,5](models/shufflenet05.md),
-[ShuffleNetV2 ×1,0](models/shufflenet10.md) et
-[MobileNetV2](models/mobilenet_v2.md). Ces résultats proviennent d'une seule
+[ShuffleNetV2 ×0,5](models/shufflenet05.py),
+[ShuffleNetV2 ×1,0](models/shufflenet10.py) et
+[MobileNetV2](models/mobilenet_v2.py). Ces résultats proviennent d'une seule
 comparaison en validation locale ; ils ne sont pas des scores du test officiel.
-Les graphiques et historiques sont dans `resultats_benchmark/nuit/`.
+Les graphiques et historiques sont dans `benchmark/modeles/resultats/nuit/`.

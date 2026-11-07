@@ -17,10 +17,13 @@ __pycache__/
 # Données et résultats locaux
 *.csv
 *.json
+!/benchmark/modeles/protocole/protocol.json
+!/benchmark/modeles/protocole/split.json
 /results/
-/resultats_benchmark/nuit.zip
-/resultats_benchmark/nuit/journaux/
-/resultats_benchmark/nuit/index.md
+/benchmark/modeles/executions/
+/benchmark/modeles/resultats/nuit.zip
+/benchmark/modeles/resultats/nuit/journaux/
+/benchmark/modeles/resultats/nuit/index.md
 
 # Archives et figures locales du dossier benchmark
 /benchmark/index.md

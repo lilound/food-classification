@@ -6,6 +6,7 @@ import json
 import math
 import os
 import platform
+import sys
 from importlib.metadata import version
 from pathlib import Path
 from time import perf_counter
@@ -17,13 +18,15 @@ from torch.nn.functional import cosine_similarity
 from torch.utils.data import DataLoader, RandomSampler, Subset
 from torchvision.datasets import ImageFolder
 
+ROOT = Path(__file__).resolve().parents[2]
+KIT = Path(__file__).resolve().parent
+sys.path.insert(0, str(ROOT))
+
 from models.compact import load_model
 from src.dataset import find_data_folder, get_transforms
 
-ROOT = Path(__file__).resolve().parent
-KIT = ROOT / "benchmarks/lr"
-CONFIG = KIT / "protocol.json"
-SPLIT = KIT / "split.json"
+CONFIG = KIT / "protocole/protocol.json"
+SPLIT = KIT / "protocole/split.json"
 MODES = ("fixed", "adaptive", "cosine")
 
 POLICY = {"gain": 0.02, "smoothing": 0.95, "max_lr_factor": 3.0}
@@ -164,7 +167,7 @@ def run_epoch(model, loader, criterion, device, optimizer=None, seed=None, contr
 
 def check_dependencies():
     installed = {}
-    for pin in (KIT / "requirements.txt").read_text().splitlines():
+    for pin in (KIT / "protocole/requirements.txt").read_text().splitlines():
         name, required = pin.split("==")
         installed[name] = version(name)
         if installed[name].split("+")[0] != required:
@@ -220,7 +223,7 @@ def run(args):
     machine = dict(device=str(device), gpu=torch.cuda.get_device_name() if use_cuda else None,
                    platform=platform.platform(), python=platform.python_version(), dependencies=dependencies,
                    threads=args.threads, workers=args.workers)
-    out = args.output or ROOT / "results" / {
+    out = args.output or KIT / "executions" / {
         "fixed": "benchmark_lr_fixed_0.0001",
         "adaptive": "benchmark_lr_adaptive",
         "cosine": "benchmark_lr_cosine",

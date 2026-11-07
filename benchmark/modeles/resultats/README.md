@@ -3,24 +3,24 @@
 ## Lancer tous les essais et préparer l'archive
 
 Depuis la racine du dépôt, installez les dépendances avec
-`python -m pip install -r benchmarks/lr/requirements.txt` et placez le
+`python -m pip install -r benchmark/modeles/protocole/requirements.txt` et placez le
 dataset officiel dans `data/food-11/`. Puis lancez :
 
 ```bash
-python lancer_benchmarks.py
+python benchmark/modeles/lancer_benchmarks.py
 ```
 
 La commande lance les trois modes (`fixed`, `adaptive`, `cosine`), avec dix
 modèles par mode. Chaque essai dispose de son dossier et sauvegarde ses
-checkpoints dans `results/benchmark_nuit/`. Par défaut, un seul essai est
+checkpoints dans `benchmark/modeles/executions/benchmark_nuit/`. Par défaut, un seul essai est
 attribué à chaque GPU CUDA visible et les autres utilisent le CPU. Avec un
 seul GPU, `--device cuda --jobs 1` permet d'enchaîner les trois sur le GPU.
 Pour lancer seulement les deux méthodes variables, ajoutez
 `--modes adaptive cosine`. Sur CPU, l'ensemble peut dépasser une nuit.
 
-Pendant le calcul, `resultats_benchmark/nuit/` reçoit les historiques, les figures et
+Pendant le calcul, `benchmark/modeles/resultats/nuit/` reçoit les historiques, les figures et
 les journaux. Quand les essais se terminent, le lanceur crée
-`resultats_benchmark/nuit.zip`, sans dataset ni fichiers de poids. En cas d'erreur
+`benchmark/modeles/resultats/nuit.zip`, sans dataset ni fichiers de poids. En cas d'erreur
 d'un essai, les autres continuent et `execution.json` indique lesquels sont
 terminés. Un arrêt avec Ctrl+C produit aussi l'archive des époques déjà
 sauvegardées. Pour reprendre, relancez la même commande avec `--resume`
@@ -33,7 +33,7 @@ disponibles et voir quels essais sont encore en cours.
 
 | Dossier ou fichier | Contenu |
 | --- | --- |
-| `experiences/<mode>/donnees_brutes/` | Métadonnées du run en JSON, historique de toutes les époques et classement par meilleur état en JSON et en CSV. |
+| `experiences/<mode>/donnees_brutes/` | Copies des historiques et classements, recréées par l'export depuis `executions/benchmark_nuit/`. |
 | `courbes_par_modele/` | Une figure PNG et SVG par modèle, avec une courbe pour chaque mode testé sur ce modèle. |
 | `comparaison/frugalite_toutes_courbes.{png,svg}` | Toutes les courbes dans un diagramme à axes partagés, avec un panneau par mode. |
 | `comparaison/scores.csv` | Meilleur score, époque retenue, raison d'arrêt et score à la dernière époque commune aux modes disponibles pour chaque modèle. |
@@ -48,11 +48,11 @@ générés peuvent être partagés via Git ; les poids `.pth` restent ignorés.
 Depuis la racine du dépôt, pour réexporter les essais locaux :
 
 ```bash
-python export_benchmark.py results/benchmark_lr_fixed_0.0001 results/benchmark_lr_adaptive results/benchmark_lr_cosine
+python benchmark/modeles/export_benchmark.py benchmark/modeles/executions/benchmark_lr_fixed_0.0001 benchmark/modeles/executions/benchmark_lr_adaptive benchmark/modeles/executions/benchmark_lr_cosine
 ```
 
 Lorsque l'autre PC renvoie ses résultats, copier ses fichiers `run.json`,
-`history.json` et `summary.json` dans `results/benchmark_lr_adaptive/`
+`history.json` et `summary.json` dans `benchmark/modeles/executions/benchmark_lr_adaptive/`
 ou passer leur dossier réel à la commande. Un dossier sans résultats est
 signalé dans l'index et sera intégré dès que ses trois fichiers sont présents.
 N'utiliser qu'un dossier par mode et le même protocole à patience 6. Le mode fixe doit utiliser un taux de 0,0001.

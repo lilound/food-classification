@@ -14,9 +14,10 @@ matplotlib.rcParams["svg.fonttype"] = "none"
 import matplotlib.pyplot as plt
 from matplotlib.ticker import MaxNLocator
 
-ROOT = Path(__file__).resolve().parent
-CONFIG = ROOT / "benchmarks/lr/protocol.json"
-SPLIT = ROOT / "benchmarks/lr/split.json"
+ROOT = Path(__file__).resolve().parents[2]
+KIT = Path(__file__).resolve().parent
+CONFIG = KIT / "protocole/protocol.json"
+SPLIT = KIT / "protocole/split.json"
 MODES = {
     "fixed": ("Taux fixe", "#3165A7", "-"),
     "adaptive": ("Taux adaptatif · par lot", "#187455", "-."),
@@ -209,7 +210,7 @@ def alive(pid):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("runs", nargs="+", type=Path)
-    parser.add_argument("--output", type=Path, default=ROOT / "resultats_benchmark")
+    parser.add_argument("--output", type=Path, default=KIT / "resultats")
     parser.add_argument("--watch-pid", action="append", type=int, default=[],
                         help="Sur Linux, actualise tant qu'un des processus indiqués tourne")
     parser.add_argument("--interval", type=int, default=60)

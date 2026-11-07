@@ -9,9 +9,7 @@ import torch
 from torch import nn
 from torch.utils.data import TensorDataset
 
-import benchmark_lr
-import export_benchmark
-import lancer_benchmarks
+from benchmark.modeles import benchmark_lr, export_benchmark, lancer_benchmarks
 
 
 class BenchmarkTest(unittest.TestCase):
@@ -75,7 +73,7 @@ class BenchmarkTest(unittest.TestCase):
             args = argparse.Namespace(data_dir=root, threads=1, workers=0)
             for mode in export_benchmark.MODES:
                 cmd = lancer_benchmarks.command(mode, root / mode, args)
-                self.assertEqual(Path(cmd[2]), benchmark_lr.ROOT / "benchmark_lr.py")
+                self.assertEqual(Path(cmd[2]), benchmark_lr.KIT / "benchmark_lr.py")
                 self.assertEqual(cmd[3:5], ["--mode", mode])
 
     def test_launcher_runs_all_modes_and_exports(self):
@@ -94,7 +92,7 @@ sys.path.insert(0, {str(benchmark_lr.ROOT)!r})
 import torch
 from torch import nn
 from torch.utils.data import TensorDataset
-spec = importlib.util.spec_from_file_location("real_benchmark", {str(benchmark_lr.ROOT / "benchmark_lr.py")!r})
+spec = importlib.util.spec_from_file_location("real_benchmark", {str(benchmark_lr.KIT / "benchmark_lr.py")!r})
 bench = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(bench)
 bench.CONFIG, bench.SPLIT = Path({str(config)!r}), Path({str(split)!r})
@@ -107,7 +105,7 @@ bench.main()
             args = argparse.Namespace(jobs=1, modes=list(export_benchmark.MODES), device="cpu",
                                       runs=root / "runs", output=root / "report", resume=False,
                                       data_dir=root, threads=1, workers=0)
-            with patch.object(lancer_benchmarks, "ROOT", root), patch.object(lancer_benchmarks, "CONFIG", config), \
+            with patch.object(lancer_benchmarks, "ROOT", root), patch.object(lancer_benchmarks, "KIT", root), patch.object(lancer_benchmarks, "CONFIG", config), \
                  patch.object(lancer_benchmarks, "SPLIT", split):
                 self.assertEqual(lancer_benchmarks.run(args), 0)
                 results = json.loads((args.output / "execution.json").read_text())
