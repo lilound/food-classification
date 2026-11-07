@@ -67,3 +67,31 @@ plus précisément avec les trois premiers modèles :
 [MobileNetV2](models/mobilenet_v2.py). Ces résultats proviennent d'une seule
 comparaison en validation locale ; ils ne sont pas des scores du test officiel.
 Les graphiques et historiques sont dans `benchmark/modeles/resultats/nuit/`.
+
+## Gel des couches des trois modèles retenus
+
+Mêmes données de validation et protocole que le benchmark ci-dessus. Chaque
+essai part des poids ImageNet ; le taux est fixe pour ShuffleNet ×0,5 et
+adaptatif pour les deux autres. Le premier gel bloque `conv1` et `stage2`
+sur ShuffleNet et `features[0:7]` sur MobileNetV2 ; le gel renforcé ajoute
+`stage3` ou étend le gel à `features[0:14]`. Le gel maximal de ShuffleNet
+×0,5 bloque aussi `stage4`. Les statistiques BatchNorm gelées restent fixes.
+
+| Modèle | Gel | Meilleur F1 macro | Meilleure frugalité | Époque |
+| --- | --- | ---: | ---: | ---: |
+| ShuffleNet ×0,5 | Aucun | 0,7748 | 0,6965 | 22 |
+| ShuffleNet ×0,5 | Premier | 0,7707 | 0,6924 | 18 |
+| ShuffleNet ×0,5 | Renforcé | 0,7781 | **0,6998** | 30 |
+| ShuffleNet ×0,5 | Maximal | 0,7716 | 0,6933 | 43 |
+| ShuffleNet ×1,0 | Aucun | 0,8578 | 0,6903 | 8 |
+| ShuffleNet ×1,0 | Premier | 0,8530 | 0,6854 | 18 |
+| ShuffleNet ×1,0 | Renforcé | 0,8351 | 0,6675 | 14 |
+| MobileNetV2 | Aucun | 0,8896 | 0,6822 | 17 |
+| MobileNetV2 | Premier | 0,8836 | 0,6763 | 11 |
+| MobileNetV2 | Renforcé | 0,8748 | 0,6675 | 4 |
+
+Le gel renforcé améliore la frugalité de ShuffleNet ×0,5 de 0,0033 ; les
+autres gels testés diminuent le score de leur modèle. Le nombre total de
+paramètres et sa pénalité ne changent pas avec le gel : la variation du score
+vient du F1. Chaque configuration n'a été exécutée qu'une fois, sur la
+validation locale ; le léger gain reste à confirmer par répétition.

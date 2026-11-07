@@ -128,6 +128,29 @@ conclusions dans [RESULTS.md](RESULTS.md).
 Pour lancer les trois modes en une commande et préparer l'archive
 `benchmark/modeles/resultats/nuit.zip`, utilisez `python benchmark/modeles/lancer_benchmarks.py`.
 
+## Comparer le gel des couches
+
+Le benchmark `benchmark/gel_couches/benchmark.py` reprend le découpage, les images
+128 × 128, les lots de 64, le retournement et les règles d'arrêt du benchmark
+des modèles. Il entraîne uniquement les trois finalistes avec gel, puis trace
+leur frugalité par époque face aux historiques sans gel du benchmark précédent.
+Il utilise le taux fixe pour ShuffleNet ×0,5 et adaptatif pour les deux autres.
+
+Les couches gelées sont `conv1` et `stage2` pour les deux ShuffleNet et les
+blocs `features[0:7]` pour MobileNetV2. Leurs paramètres et leurs statistiques
+BatchNorm restent figés. La pénalité de frugalité utilise toujours le nombre
+total de paramètres ; le nombre de paramètres entraînables est affiché.
+
+```bash
+python benchmark/gel_couches/benchmark.py --data-dir data/food-11 --reference benchmark/modeles/executions/benchmark_nuit
+```
+
+Les historiques précédents sont locaux et ignorés par Git : si nécessaire,
+indiquez leur emplacement avec `--reference`. Les nouveaux checkpoints et les
+graphiques PNG/SVG sont enregistrés sous `benchmark/gel_couches/executions/`.
+Ajoutez `--resume` pour reprendre après interruption. N'utilisez pas le même
+dossier de sortie pour deux processus simultanés.
+
 ## Échéances et livrables
 
 - **Date limite :** 15 novembre 2026.
