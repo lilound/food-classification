@@ -66,3 +66,32 @@ validation à l'époque 3 : **0,6649** de frugalité (F1 macro **0,8325**).
 Son évaluation privée donne **0,6521** de frugalité, F1 **0,8197** et
 accuracy **83,95 %**. Parmi ces trois checkpoints évalués, ShuffleNetV2
 ×0,5 conserve la meilleure frugalité officielle (**0,6830**).
+
+### Variantes du taux adaptatif sur ShuffleNetV2 ×0,5
+
+Avec le jeu équilibré, le gel renforcé et la graine 42, l'essai de recherche
+de pas par lot a été interrompu après cinq époques. Aucun des 68 contrôles
+enregistrés n'a accepté de pas et le taux est tombé au plancher de `1e-6`
+dès la première époque. Cet essai ne permet pas de conclure sur une recherche
+de pas mieux calibrée. L'alternative `loss-plateau` garde toutes les mises à
+jour et utilise la perte de validation pour réduire le taux.
+
+L'essai `loss-plateau` s'est arrêté sur plateau à l'époque **22**. Les poids
+de l'époque **16**, retenus en validation (**0,6930** de frugalité), donnent
+au test officiel privé **0,6969** de frugalité, **0,7752** de F1 et
+**79,69 %** d'accuracy. L'écart avec l'adaptatif original sur le même jeu
+équilibré et avec le même gel est de **+0,0139** de frugalité officielle
+sur ces deux essais. Le classement public n'a pas été mis à jour.
+
+### Témoin sans équilibrage, même protocole `loss-plateau`
+
+Le témoin ShuffleNetV2 ×0,5 a utilisé le même gel, la même validation et
+275 mises à jour par époque. Arrêté après 14 époques, il atteint son meilleur
+score de validation à l'époque 8 (**0,6915**). Le test officiel privé donne
+**0,6743** de frugalité, **0,7526** de F1 macro et **0,7924** d'accuracy.
+L'essai équilibré à l'époque 16 obtient **0,6969** de frugalité officielle,
+soit **+0,0226**. Sur les 14 premières époques, le meilleur score de
+validation de l'essai équilibré est **0,6917**. Les scores officiels
+comparent les deux recettes à leurs époques sélectionnées en validation.
+
+[Courbe, historiques et F1 par classe](benchmark/modeles/resultats/jeu_equilibre/comparaison_budget/README.md).

@@ -1,0 +1,43 @@
+{
+  "signature": {
+    "mode": "adaptive",
+    "protocol_sha256": "b63d859745f8b09ab3234cb718649614d3b98757a38ff50a6c07c857f8de2ec9",
+    "split_sha256": "5b9b3c30cee16e1990cb4dab0e43947c7c59706a4a81f6943b1bbf715d07b8e8",
+    "freeze_early": "shufflenet-conv1-stage2-stage3_mobilenet-features-0-13-v1",
+    "policy_sha256": "2ba9c7aed21ea655aca3969f866121106a39aea8bac3d0eee2fe0bcc53005459"
+  },
+  "models": [
+    "shufflenet05"
+  ],
+  "policy": {
+    "name": "loss-plateau-v1",
+    "warmup_epochs": 1,
+    "peak_lr": 0.0003,
+    "scheduler": {
+      "mode": "min",
+      "factor": 0.5,
+      "patience": 1,
+      "threshold": 0.002,
+      "threshold_mode": "rel",
+      "min_lr": 1e-05
+    }
+  },
+  "machines": [
+    {
+      "device": "cpu",
+      "gpu": null,
+      "platform": "Linux-7.2.15-200.fc44.x86_64-x86_64-with-glibc2.43",
+      "python": "3.14.10",
+      "dependencies": {
+        "torch": "2.14.1",
+        "torchvision": "0.29.1",
+        "scikit-learn": "1.9.1",
+        "numpy": "2.5.4",
+        "matplotlib": "3.11.2",
+        "Pillow": "12.3.0"
+      },
+      "threads": 4,
+      "workers": 4
+    }
+  ]
+}

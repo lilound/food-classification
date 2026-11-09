@@ -3,8 +3,9 @@
 ## Résultats sur le jeu équilibré
 
 Le [dossier du jeu équilibré](jeu_equilibre/README.md) conserve les
-historiques des quatre essais, la figure de validation et les trois
-évaluations privées sur le test officiel.
+historiques, les courbes de validation et les évaluations privées sur le test
+officiel. La [comparaison avec le jeu original](jeu_equilibre/comparaison_budget/README.md)
+détaille les essais ShuffleNetV2 ×0,5 avec `loss-plateau`.
 
 ## Lancer tous les essais et préparer l'archive
 

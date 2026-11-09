@@ -13,4 +13,6 @@ Jeu figé : 17 600 images d’entraînement (1 600 par classe), 2 659 images de 
 
 Le point sur chaque courbe marque le meilleur score de validation. Le gel renforcé fixe les blocs conv1, stage2 et stage3 de ShuffleNet ou features[0:14] de MobileNetV2, statistiques BatchNorm comprises.
 
-Au test officiel, ShuffleNetV2 ×0,5 est en tête des trois checkpoints soumis (**0,6830**). Les checkpoints ont été choisis en validation ; les deux autres essais ont été interrompus et n’ont pas le même budget d’époques. Le classement public n’a pas été mis à jour.
+Avec le réglage adaptatif initial, ShuffleNetV2 ×0,5 obtient la meilleure frugalité des trois checkpoints testés (**0,6830**). Les checkpoints ont été choisis en validation. Les deux autres essais ont été interrompus à des époques différentes.
+
+Le réglage `loss-plateau` avec gel renforcé porte la frugalité officielle de ShuffleNetV2 ×0,5 à **0,6969** à l’époque 16. Le témoin sur le jeu original obtient **0,6743** à l’époque 8. [Comparaison, courbe et résultats bruts](comparaison_budget/README.md).
