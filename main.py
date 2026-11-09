@@ -6,7 +6,7 @@
 from pathlib import Path
 import torch
 
-from models.mobilenet import load_model as load_mobilenet
+from models.compact import load_model as load_compact
 from models.mobilenet_v2 import load_model as load_mobilenet_v2
 from models.shufflenet05 import load_model as load_shufflenet05
 from models.shufflenet10 import load_model as load_shufflenet10
@@ -33,7 +33,7 @@ def main():
     )
 
     # 2. Charger le modèle
-    loaders = {"mobilenet": load_mobilenet, "mobilenet_v2": load_mobilenet_v2,
+    loaders = {"mobilenet": lambda count: load_compact("mobilenet", count), "mobilenet_v2": load_mobilenet_v2,
                "shufflenet05": load_shufflenet05, "shufflenet10": load_shufflenet10}
     if MODEL_NAME not in loaders:
         raise ValueError("Modèle inconnu")
