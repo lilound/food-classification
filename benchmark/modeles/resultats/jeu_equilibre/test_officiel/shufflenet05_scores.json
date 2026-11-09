@@ -1,0 +1,16 @@
+{
+  "model": "shufflenet05",
+  "epoch": 6,
+  "params": 353067,
+  "validation": 0.6905127438902203,
+  "official": {
+    "frugality": 0.683,
+    "f1": 0.7613,
+    "precision": 0.7021,
+    "accuracy": 0.7888,
+    "recall": 0.8313
+  },
+  "description": "ShuffleNetV2 x0.5, ImageNet, balanced Food-11 1600 per class, 128x128, adaptive Adam, strong layer freeze, epoch 6",
+  "predictions": "predictions_shufflenet05_e6.json",
+  "response": "shufflenet05_e6_reponse.html"
+}

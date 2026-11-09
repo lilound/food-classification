@@ -29,6 +29,49 @@ Chaque sous-dossier de `train/` correspond à une catégorie alimentaire. Les im
 
 Les données ne sont pas incluses dans Git. Il faut donc les télécharger séparément avant de lancer le programme.
 
+### Générer le jeu équilibré à 1 600 images par classe
+
+Avec le jeu officiel installé et Pillow disponible, exécutez depuis la racine :
+
+```bash
+python creer_dataset_equilibre.py
+```
+
+Le script crée `data/food-11-balanced/` : `train/` (17 600 images),
+`validation/` (2 659) et `test/` (3 097). Il conserve chaque image
+d'entraînement originale et complète les classes rares avec des variantes
+déterministes (graine 42). Validation et test sont des copies à l'identique.
+`manifest.json` relie chaque image à sa source et à sa recette ;
+`dataset.json` enregistre les effectifs et l'empreinte SHA-256 du jeu.
+Le script n'écrase aucun dossier existant. Pour un autre emplacement,
+utilisez `--output` ; pour un autre quota, utilisez `--per-class` (au moins 1 600).
+
+Transférez le dossier complet sur le deuxième PC et vérifiez-y l'empreinte :
+
+```bash
+python creer_dataset_equilibre.py --verify data/food-11-balanced
+python benchmark/modeles/benchmark_lr.py --mode fixed --models shufflenet05 --data-dir data/food-11-balanced
+```
+
+Le benchmark utilise la validation fournie et mélange l'ordre du train sans
+ajouter de retournements aléatoires. Pour lancer les trois modes sur ce jeu
+dans des dossiers distincts du benchmark original :
+
+```bash
+python benchmark/modeles/lancer_benchmarks.py --data-dir data/food-11-balanced --runs benchmark/modeles/executions/equilibre --output benchmark/modeles/resultats/equilibre
+```
+
+Pour réexporter ces essais séparément, passez également
+`--data-dir data/food-11-balanced` à `benchmark/modeles/export_benchmark.py`
+avec leurs dossiers de résultats et un `--output` dédié.
+
+Pour tester ShuffleNet ×0,5 avec taux adaptatif et gel renforcé
+(`conv1`, `stage2`, `stage3`, BatchNorm comprises) :
+
+```bash
+python benchmark/modeles/benchmark_lr.py --mode adaptive --models shufflenet05 --freeze-early --freeze-level strong --data-dir data/food-11-balanced --output benchmark/modeles/executions/shufflenet05_adaptive_strong_balanced
+```
+
 ## Installation
 
 Depuis le dossier du projet, créer puis activer un environnement Python :

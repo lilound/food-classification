@@ -1,5 +1,11 @@
 # Dossier du benchmark Food-11
 
+## Résultats sur le jeu équilibré
+
+Le [dossier du jeu équilibré](jeu_equilibre/README.md) conserve les
+historiques des quatre essais, la figure de validation et les trois
+évaluations privées sur le test officiel.
+
 ## Lancer tous les essais et préparer l'archive
 
 Depuis la racine du dépôt, installez les dépendances avec

@@ -4,6 +4,7 @@ import argparse
 import csv
 import hashlib
 import json
+import sys
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -15,6 +16,9 @@ import matplotlib.pyplot as plt
 from matplotlib.ticker import MaxNLocator
 
 ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT))
+from creer_dataset_equilibre import benchmark_protocol
+
 KIT = Path(__file__).resolve().parent
 CONFIG = KIT / "protocole/protocol.json"
 SPLIT = KIT / "protocole/split.json"
@@ -211,6 +215,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("runs", nargs="+", type=Path)
     parser.add_argument("--output", type=Path, default=KIT / "resultats")
+    parser.add_argument("--data-dir", type=Path, default=ROOT / "data/food-11")
     parser.add_argument("--watch-pid", action="append", type=int, default=[],
                         help="Sur Linux, actualise tant qu'un des processus indiqués tourne")
     parser.add_argument("--interval", type=int, default=60)
@@ -219,7 +224,7 @@ def main():
         parser.error("Intervalle minimal de 5 secondes et PID positifs.")
     if args.watch_pid and not Path("/proc/self/stat").is_file():
         parser.error("--watch-pid requiert Linux.")
-    protocol, split = read(CONFIG), read(SPLIT)
+    protocol, split = benchmark_protocol(args.data_dir, read(CONFIG), read(SPLIT))
     last = None
     while True:
         snapshots, pending = [], []

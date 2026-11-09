@@ -31,3 +31,38 @@ plus précisément avec les trois premiers modèles :
 [MobileNetV2](models/mobilenet_v2.py). Ces résultats proviennent d'une seule
 comparaison en validation locale ; ils ne sont pas des scores du test officiel.
 Les graphiques et historiques sont dans `benchmark/modeles/resultats/nuit/`.
+
+## ShuffleNetV2 ×0,5 sur Food-11 équilibré
+
+[Historique, courbes et test officiel](benchmark/modeles/resultats/jeu_equilibre/README.md).
+
+Les essais gardent les 2 659 images de validation du protocole initial.
+L'entraînement utilise 17 600 images (1 600 par classe, dont 6 963 variantes
+figées), sans augmentation aléatoire supplémentaire, en 128 × 128.
+
+Un premier essai à taux fixe sans gel a été interrompu après 11 époques :
+meilleure frugalité provisoire **0,6888**, F1 macro **0,7671** à l'époque 11.
+L'essai retenu repart des poids ImageNet avec Adam adaptatif et le gel
+renforcé de `conv1`, `stage2` et `stage3` repris de `origin/main` (`13be3fb`).
+Ce protocole historique donnait 0,6998 avec taux fixe sur le jeu original ;
+un écart avec le nouvel essai ne mesure pas à lui seul l'effet du rééquilibrage.
+
+L'essai adaptatif avec gel renforcé a atteint une frugalité de **0,6905**
+à l'époque **6** (F1 macro **0,7688**, accuracy **76,38 %**). Il s'est arrêté
+sur plateau à l'époque **12**. Le taux était au plafond à l'époque 2 et
+très proche aux époques 3 et 4 ; le plafond est passé de `3e-4` à `1,5e-4`
+après l'époque 10. Sur le test officiel, l'évaluation privée du checkpoint de
+l'époque 6 donne une frugalité de **0,6830** (F1 **0,7613**, accuracy **78,88 %**).
+
+Sur le même jeu équilibré, MobileNetV2 a été entraîné à taux adaptatif
+avec gel renforcé (`features[0:14]`). Essai interrompu après cinq époques.
+Meilleur état de validation à l'époque 3 : **0,6612** de frugalité
+(F1 macro **0,8686**). Son évaluation privée sur le test officiel donne
+**0,6154** de frugalité, F1 **0,8227** et accuracy **87,12 %**.
+
+ShuffleNetV2 ×1,0 a également été testé avec Adam adaptatif et gel renforcé
+sur le jeu équilibré. Essai interrompu après six époques. Meilleur état de
+validation à l'époque 3 : **0,6649** de frugalité (F1 macro **0,8325**).
+Son évaluation privée donne **0,6521** de frugalité, F1 **0,8197** et
+accuracy **83,95 %**. Parmi ces trois checkpoints évalués, ShuffleNetV2
+×0,5 conserve la meilleure frugalité officielle (**0,6830**).

@@ -13,6 +13,7 @@ import torch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from benchmark.modeles.export_benchmark import CONFIG, KIT, MODES, ROOT, SPLIT, read, read_run, render, write_json
+from creer_dataset_equilibre import benchmark_protocol
 
 
 def devices(kind, jobs):
@@ -66,7 +67,7 @@ def stop(children):
 
 
 def run(args):
-    protocol, split = read(CONFIG), read(SPLIT)
+    protocol, split = benchmark_protocol(args.data_dir, read(CONFIG), read(SPLIT))
     jobs = min(args.jobs, len(args.modes))
     slots = devices(args.device, jobs)
     root, output = args.runs.resolve(), args.output.resolve()

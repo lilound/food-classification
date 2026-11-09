@@ -1,0 +1,16 @@
+{
+  "model": "mobilenet_v2",
+  "epoch": 3,
+  "params": 2237963,
+  "validation": 0.6612252343768343,
+  "official": {
+    "frugality": 0.6154,
+    "f1": 0.8227,
+    "precision": 0.7571,
+    "accuracy": 0.8712,
+    "recall": 0.9009
+  },
+  "description": "MobileNetV2, ImageNet, balanced Food-11 1600 per class, 128x128, adaptive Adam, strong layer freeze, epoch 3",
+  "predictions": "predictions_mobilenet_v2_e3.json",
+  "response": "mobilenet_v2_e3_reponse.html"
+}

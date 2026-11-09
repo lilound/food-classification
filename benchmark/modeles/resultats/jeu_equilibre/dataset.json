@@ -1,0 +1,30 @@
+{
+  "kind": "food11-balanced-v1",
+  "seed": 42,
+  "classes": [
+    "bread",
+    "dairy",
+    "dessert",
+    "egg",
+    "fried",
+    "meat",
+    "noodles-pasta",
+    "rice",
+    "seafood",
+    "soup",
+    "vegetable-fruit"
+  ],
+  "train_per_class": 1600,
+  "train_original": 10637,
+  "train_augmented": 6963,
+  "validation": 2659,
+  "test": 3097,
+  "source_train_sha256": "8114c015b7249acf7bff163b458639677342c2a8648c7b2411bb91c88f07177e",
+  "source_split_sha256": "5b9b3c30cee16e1990cb4dab0e43947c7c59706a4a81f6943b1bbf715d07b8e8",
+  "dataset_sha256": "fc027f4cd0659f961b1169d5a5b31ee87d8bc89c2057396664273baec59f3eff",
+  "manifest_sha256": "b4aa750f70fe95f6f27b662b66117d5a32ff5a35c668f2651d9c989e9e8512fd",
+  "encoder": {
+    "pillow": "12.3.0",
+    "jpeg": "6.2"
+  }
+}
