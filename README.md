@@ -171,6 +171,42 @@ conclusions dans [RESULTS.md](RESULTS.md).
 Pour lancer les trois modes en une commande et préparer l'archive
 `benchmark/modeles/resultats/nuit.zip`, utilisez `python benchmark/modeles/lancer_benchmarks.py`.
 
+### Variante expérimentale : taux adaptatif centré
+
+```bash
+python benchmark/modeles/benchmark_lr.py --mode adaptive --adaptive-policy centered --models shufflenet05 --freeze-early --freeze-level strong --data-dir data/food-11-balanced --output benchmark/modeles/executions/shufflenet05_centered_strong_balanced
+```
+
+Le contrôleur compare une moyenne rapide de l'alignement (coefficient 0,1) à
+une moyenne lente (0,01). Leur écart pilote le taux autour d'une valeur de
+base, sans cumuler les hausses quand le signal reste positif. Le taux varie
+d'au plus un facteur 1,05 par lot ; en cas de plateau, la règle de validation
+réduit le taux de base entre deux époques. L'historique enregistre les taux
+minimum, moyen, maximum et la fraction de lots au plafond.
+
+Sans `--adaptive-policy centered`, le comportement et la reprise de
+l'adaptatif d'origine sont conservés. Comparez les deux variantes avec le
+même découpage, le même gel et le même nombre de mises à jour.
+
+Pour essayer la recherche de pas, utilisez `--adaptive-policy probe` et
+un autre dossier de sortie. Tous les 20 lots, le contrôleur compare
+`0,5 × LR`, `1 × LR` et `1,5 × LR` sur un échantillon du lot
+d'entraînement suivant. Le journal affiche les pertes et le taux retenu.
+Le checkpoint conserve le compteur des lots pour reprendre les contrôles
+à la même cadence.
+
+La variante `--adaptive-policy loss-plateau` fait monter le taux de
+`1e-4` à `3e-4` pendant la première époque, puis le divise par deux
+après deux époques sans baisse suffisante de la perte de validation
+(seuil relatif de 0,2 %, plancher à `1e-5`). Elle garde toutes les mises
+à jour d'Adam. Utilisez un dossier de sortie distinct ; la sélection des
+poids et l'arrêt restent pilotés par la frugalité.
+
+Pour comparer les résolutions, utilisez `--image-size 256` avec un dossier
+de sortie distinct. La taille d'entrée s'applique à l'entraînement et à la
+validation. Pour comparer à budget identique, fixez aussi le même
+`--epoch-budget` pour les deux essais.
+
 ## Échéances et livrables
 
 - **Date limite :** 15 novembre 2026.

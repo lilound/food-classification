@@ -13,6 +13,40 @@ from benchmark.modeles import benchmark_lr, export_benchmark, lancer_benchmarks
 
 
 class BenchmarkTest(unittest.TestCase):
+    def test_controlled_budget_records_exact_steps_and_class_scores(self):
+        protocol = benchmark_lr.read(benchmark_lr.CONFIG)
+        protocol.update(models={"toy": ["Toy", 143, "none"]}, batch_size=4)
+        dataset = TensorDataset(torch.rand(8, 3, 2, 2), torch.arange(8) % 11)
+        classes = [f"class{i}" for i in range(11)]
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            config, split = root / "protocol.json", root / "split.json"
+            config.write_text(json.dumps(protocol))
+            split.write_text(json.dumps({"classes": classes}))
+            args = argparse.Namespace(
+                mode="adaptive", adaptive_policy="loss-plateau", models=None, data_dir=root,
+                output=root / "run", resume=False, device="cpu", workers=0, threads=1,
+                image_size=256,
+                updates_per_epoch=3, epoch_budget=1, no_train_augmentation=True, class_metrics=True,
+            )
+            with patch.object(benchmark_lr, "CONFIG", config), patch.object(benchmark_lr, "SPLIT", split), \
+                 patch.object(benchmark_lr, "check_dependencies", return_value={}), \
+                 patch.object(benchmark_lr, "verified_split", return_value=(dataset, dataset)) as verify, \
+                 patch.object(benchmark_lr, "load_model", side_effect=lambda *a, **kw: nn.Sequential(nn.Flatten(), nn.Linear(12, 11))):
+                benchmark_lr.run(args)
+                self.assertEqual(verify.call_args.args[1]["image_size"], 256)
+                args.resume = True
+                args.image_size = 128
+                with self.assertRaisesRegex(ValueError, "incompatible avec la reprise"):
+                    benchmark_lr.run(args)
+            self.assertEqual(benchmark_lr.read(args.output / "run.json")["image_size"], 256)
+            row, = benchmark_lr.read(args.output / "history.json")
+            self.assertEqual(row["batches_seen"], 3)
+            self.assertEqual(list(row["class_f1"]), classes)
+            saved = torch.load(args.output / "toy.pth", weights_only=True)
+            self.assertTrue(all(s["step"].item() == 3 for s in saved["optimizer"]["state"].values()))
+            self.assertEqual(saved["stop"], "plafond")
+
     def test_fixed_and_adaptive_training_and_resume(self):
         protocol = benchmark_lr.read(benchmark_lr.CONFIG)
         protocol.update(models={"toy": ["Toy", 143, "none"]}, batch_size=4,

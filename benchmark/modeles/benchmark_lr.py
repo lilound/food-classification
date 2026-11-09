@@ -1,6 +1,7 @@
 """Compare les taux d'apprentissage fixe et variable sur le protocole Food-11 figé."""
 
 import argparse
+import copy
 import hashlib
 import json
 import math
@@ -15,7 +16,7 @@ import torch
 from sklearn.metrics import accuracy_score, f1_score
 from torch import nn
 from torch.nn.functional import cosine_similarity
-from torch.utils.data import DataLoader, RandomSampler, Subset
+from torch.utils.data import DataLoader, RandomSampler, Subset, default_collate
 from torchvision.datasets import ImageFolder
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -25,12 +26,18 @@ sys.path.insert(0, str(ROOT))
 from models.compact import load_model
 from creer_dataset_equilibre import benchmark_protocol, verify as verify_balanced
 from src.dataset import find_data_folder, get_transforms
+from src.lr_probe import PROBE_POLICY, ProbeRate
+from src.lr_validation import LOSS_PLATEAU_POLICY, ValidationLossRate
 
 CONFIG = KIT / "protocole/protocol.json"
 SPLIT = KIT / "protocole/split.json"
 MODES = ("fixed", "adaptive", "cosine")
 
 POLICY = {"gain": 0.02, "smoothing": 0.95, "max_lr_factor": 3.0}
+CENTERED_POLICY = {
+    "name": "centered-v1", "fast_alpha": 0.1, "slow_alpha": 0.01,
+    "gain": 2.0, "max_lr_factor": 3.0, "max_step_factor": 1.05,
+}
 
 
 class AdaptiveRate:
@@ -52,12 +59,15 @@ class AdaptiveRate:
             cosine = cosine_similarity(self.head.grad.reshape(-1), self.direction.reshape(-1),
                                        dim=0, eps=1e-12).item()
             if math.isfinite(cosine):
-                smoothing = POLICY["smoothing"]
-                self.alignment = smoothing * self.alignment + (1 - smoothing) * cosine
-                lr = self.group["lr"] * math.exp(POLICY["gain"] * self.alignment)
-                self.group["lr"] = min(self.ceiling, max(self.floor, lr))
+                self.adjust(cosine)
         self.rates.append(self.group["lr"])
         return self.head.detach().clone()
+
+    def adjust(self, cosine):
+        smoothing = POLICY["smoothing"]
+        self.alignment = smoothing * self.alignment + (1 - smoothing) * cosine
+        lr = self.group["lr"] * math.exp(POLICY["gain"] * self.alignment)
+        self.group["lr"] = min(self.ceiling, max(self.floor, lr))
 
     @torch.no_grad()
     def after_step(self, before):
@@ -84,6 +94,41 @@ class AdaptiveRate:
         self.alignment = state["alignment"]
         self.ceiling = state["ceiling"]
         self.plateau.load_state_dict(state["plateau"])
+
+
+class CenteredAdaptiveRate(AdaptiveRate):
+    """Réagit à une variation de l'alignement autour de son niveau habituel."""
+
+    def __init__(self, optimizer, head, plateau_options):
+        super().__init__(optimizer, head, plateau_options)
+        self.base_lr = self.group["lr"]
+        self.fast = self.slow = None
+
+    def adjust(self, cosine):
+        policy = CENTERED_POLICY
+        if self.fast is None:
+            self.fast = self.slow = cosine
+        else:
+            self.fast += policy["fast_alpha"] * (cosine - self.fast)
+            self.slow += policy["slow_alpha"] * (cosine - self.slow)
+        target = self.base_lr * math.exp(policy["gain"] * (self.fast - self.slow))
+        current, limit = self.group["lr"], policy["max_step_factor"]
+        rate = min(current * limit, max(current / limit, target))
+        self.group["lr"] = min(self.ceiling, max(self.floor, rate))
+
+    def validate(self, score):
+        current, old_base = self.group["lr"], self.base_lr
+        self.group["lr"] = self.base_lr
+        self.plateau.step(score)
+        self.base_lr = self.group["lr"]
+        self.group["lr"] = min(self.ceiling, max(self.floor, current * self.base_lr / old_base))
+
+    def state_dict(self):
+        return {**super().state_dict(), "base_lr": self.base_lr, "fast": self.fast, "slow": self.slow}
+
+    def load_state_dict(self, state):
+        super().load_state_dict(state)
+        self.base_lr, self.fast, self.slow = state["base_lr"], state["fast"], state["slow"]
 
 
 def fingerprint(value):
@@ -148,19 +193,24 @@ def freeze_early_layers(model, name, level="early"):
 
 
 def run_epoch(model, loader, criterion, device, optimizer=None, seed=None, controller=None,
-              frozen_modules=(), *, augment=True):
+              frozen_modules=(), *, augment=True, class_f1_out=None):
     training = optimizer is not None
     model.train(training)
     for module in frozen_modules:
         module.eval()
     loss_sum = torch.zeros((), device=device)
     predictions, targets = [], []
+    probe_order = None
     if training:
         loader.sampler.generator.manual_seed(seed)
+        if isinstance(controller, ProbeRate) and len(loader) > 1:
+            sampler = copy.copy(loader.sampler)
+            sampler.generator = torch.Generator().set_state(loader.sampler.generator.get_state())
+            probe_order = list(sampler)
         if augment:
             flips = torch.Generator().manual_seed(seed + 1)
     with torch.set_grad_enabled(training):
-        for images, labels in loader:
+        for batch_index, (images, labels) in enumerate(loader):
             if training and augment:
                 mask = torch.rand(len(images), generator=flips) < 0.5
                 images[mask] = images[mask].flip(-1)
@@ -172,10 +222,19 @@ def run_epoch(model, loader, criterion, device, optimizer=None, seed=None, contr
             loss = criterion(logits, device_labels)
             if training:
                 loss.backward()
-                before = controller.before_step() if controller else None
-                optimizer.step()
-                if controller:
-                    controller.after_step(before)
+                if isinstance(controller, ProbeRate):
+                    def probe():
+                        start = ((batch_index + 1) % len(loader)) * loader.batch_size
+                        # Le lot suivant est distinct : RandomSampler tire sans remise.
+                        ids = probe_order[start:start + min(16, loader.batch_size)]
+                        x, y = default_collate([loader.dataset[i] for i in ids])
+                        return x.to(device, memory_format=torch.channels_last), y.to(device)
+                    controller.step(model, criterion, probe if probe_order is not None else None)
+                else:
+                    before = controller.before_step() if controller else None
+                    optimizer.step()
+                    if controller:
+                        controller.after_step(before)
             else:
                 predictions.extend(logits.argmax(dim=1).tolist())
                 targets.extend(labels.tolist())
@@ -185,6 +244,9 @@ def run_epoch(model, loader, criterion, device, optimizer=None, seed=None, contr
         raise RuntimeError("Perte non finie : la dernière époque valide reste disponible.")
     if training:
         return mean_loss
+    if class_f1_out is not None:
+        class_f1_out.extend(float(v) for v in f1_score(
+            targets, predictions, labels=list(range(11)), average=None, zero_division=0))
     return mean_loss, float(accuracy_score(targets, predictions)), float(
         f1_score(targets, predictions, labels=list(range(11)), average="macro", zero_division=0))
 
@@ -223,7 +285,26 @@ def progress(protocol, score, reference, stale, epoch):
 
 def run(args):
     protocol, split = benchmark_protocol(args.data_dir, read(CONFIG), read(SPLIT))
+    # Les réglages du protocole font partie de la signature de reprise.
+    image_size = getattr(args, "image_size", None)
+    updates = getattr(args, "updates_per_epoch", None)
+    budget = getattr(args, "epoch_budget", None)
+    no_augmentation = getattr(args, "no_train_augmentation", False)
+    if image_size is not None:
+        protocol["image_size"] = image_size
+    if updates is not None:
+        protocol["updates_per_epoch"] = updates
+    if budget is not None:
+        protocol.update(min_epochs=budget, max_epochs=budget)
+    if no_augmentation:
+        protocol["disable_extra_augmentation"] = True
     selected = args.models or list(protocol["models"])
+    choice = getattr(args, "adaptive_policy", "original")
+    centered = choice == "centered"
+    probing = choice == "probe"
+    loss_plateau = choice == "loss-plateau"
+    policy = {"original": POLICY, "centered": CENTERED_POLICY,
+              "probe": PROBE_POLICY, "loss-plateau": LOSS_PLATEAU_POLICY}[choice]
     torch.set_num_threads(args.threads)
     torch.set_float32_matmul_precision("highest")
     torch.backends.cudnn.allow_tf32 = False
@@ -262,7 +343,7 @@ def run(args):
     if args.mode == "fixed":
         signature["fixed_lr"] = protocol["initial_lr"]
     elif args.mode == "adaptive":
-        signature["policy_sha256"] = hashlib.sha256(fingerprint(POLICY)).hexdigest()
+        signature["policy_sha256"] = hashlib.sha256(fingerprint(policy)).hexdigest()
     machine = dict(device=str(device), gpu=torch.cuda.get_device_name() if use_cuda else None,
                    platform=platform.platform(), python=platform.python_version(), dependencies=dependencies,
                    threads=args.threads, workers=args.workers)
@@ -271,7 +352,13 @@ def run(args):
         "adaptive": "benchmark_lr_adaptive",
         "cosine": "benchmark_lr_cosine",
     }[args.mode]
-    out = args.output or KIT / "executions" / (run_name + ("_balanced" if balanced else ""))
+    if choice != "original":
+        run_name += f"_{choice}"
+    if balanced:
+        run_name += "_balanced"
+    if image_size is not None:
+        run_name += f"_{image_size}px"
+    out = args.output or KIT / "executions" / run_name
     states = {}
     if args.resume:
         metadata = read(out / "run.json")
@@ -287,13 +374,17 @@ def run(args):
         update_reports(out, states)
     else:
         out.mkdir(parents=True, exist_ok=False)
-        metadata = dict(signature=signature, models=selected, policy=POLICY, machines=[machine])
+        metadata = dict(signature=signature, models=selected, policy=policy, machines=[machine],
+                        image_size=protocol["image_size"])
     write(out / "run.json", metadata)
-    print(f"{args.mode}: {len(train)} train, {len(val)} validation, {device}, {out}", flush=True)
+    size = protocol["image_size"]
+    print(f"{args.mode}: {len(train)} train, {len(val)} validation, {size} × {size}, {device}, {out}", flush=True)
 
     options = dict(batch_size=protocol["batch_size"], num_workers=args.workers,
                    persistent_workers=args.workers > 0)
-    train_loader = DataLoader(train, sampler=RandomSampler(train, generator=torch.Generator()),
+    sampler = RandomSampler(train, generator=torch.Generator(),
+                            num_samples=updates * protocol["batch_size"] if updates is not None else None)
+    train_loader = DataLoader(train, sampler=sampler,
                               generator=torch.Generator().manual_seed(protocol["seed"]), **options)
     val_loader = DataLoader(val, generator=torch.Generator().manual_seed(protocol["seed"]), **options)
     criterion = nn.CrossEntropyLoss()
@@ -314,11 +405,16 @@ def run(args):
                   f"paramètres entraînables / {params} au total", flush=True)
         controller = None
         scheduler = None
-        if args.mode == "adaptive":
+        if probing:
+            controller = ProbeRate(optimizer)
+        elif loss_plateau:
+            controller = ValidationLossRate(optimizer, len(train_loader))
+        elif args.mode == "adaptive":
             head = [m for m in model.modules() if isinstance(m, (nn.Linear, nn.Conv2d))][-1]
             if head.weight.shape[0] != 11:
                 raise ValueError(f"{name} : tête de classification non reconnue.")
-            controller = AdaptiveRate(optimizer, head.weight, protocol["scheduler"])
+            controller_class = CenteredAdaptiveRate if centered else AdaptiveRate
+            controller = controller_class(optimizer, head.weight, protocol["scheduler"])
         elif args.mode == "cosine":
             scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
                 optimizer, T_max=protocol["max_epochs"], eta_min=protocol["scheduler"]["min_lr"])
@@ -341,27 +437,43 @@ def run(args):
             started = perf_counter()
             if controller is not None:
                 controller.rates.clear()
+                ceiling_used = controller.ceiling
+            if probing:
+                controller.events.clear()
             epoch_lr = optimizer.param_groups[0]["lr"]
             train_loss = run_epoch(model, train_loader, criterion, device, optimizer, seed, controller,
-                                   frozen_modules=frozen_modules, augment=not balanced)
-            val_loss, accuracy, f1 = run_epoch(model, val_loader, criterion, device)
+                                   frozen_modules=frozen_modules, augment=not (balanced or no_augmentation))
+            per_class = [] if getattr(args, "class_metrics", False) else None
+            val_loss, accuracy, f1 = run_epoch(model, val_loader, criterion, device, class_f1_out=per_class)
             frugality = f1 - 0.3 * params / (1_000_000 + params)
             if frugality > best:
                 best = frugality
                 best_weights = {k: v.detach().cpu().clone() for k, v in model.state_dict().items()}
             reference, stale, stop = progress(protocol, frugality, reference, stale, epoch)
             if controller is not None:
-                controller.validate(frugality)
+                controller.validate(val_loss if loss_plateau else frugality)
             elif scheduler is not None:
                 scheduler.step()
-            rates = controller.rates if controller is not None else [epoch_lr]
+            rates = (controller.rates or [epoch_lr]) if controller is not None else [epoch_lr]
             row = dict(model=name, epoch=epoch, params=params, lr=rates[0],
                        min_lr=min(rates), max_lr=max(rates), mean_lr=sum(rates) / len(rates),
                        next_lr=optimizer.param_groups[0]["lr"],
                        train_loss=train_loss, val_loss=val_loss, accuracy=accuracy, f1=f1,
                        frugality=frugality, seconds=perf_counter() - started)
+            if updates is not None:
+                row["batches_seen"] = epoch * len(train_loader)
+            if per_class is not None:
+                classes = split.get("classes") or val.classes
+                row["class_f1"] = dict(zip(classes, per_class, strict=True))
             if controller is not None:
                 row["lr_ceiling"] = controller.ceiling
+                row["lr_at_ceiling_fraction"] = sum(rate >= ceiling_used for rate in rates) / len(rates)
+                if centered:
+                    row["lr_base"] = controller.base_lr
+                    row["lr_alignment_fast"] = controller.fast
+                    row["lr_alignment_slow"] = controller.slow
+                if probing:
+                    row["lr_probe_events"] = controller.events.copy()
             history.append(row)
             save_checkpoint(path, dict(weights=model.state_dict(), best_weights=best_weights,
                                        optimizer=optimizer.state_dict(), scheduler=(controller or scheduler).state_dict() if controller or scheduler else None,
@@ -370,6 +482,7 @@ def run(args):
             update_reports(out, states)
             print(f"{name:19} époque {epoch:2} | F1 {f1:.4f} | frugalité {frugality:.4f} | "
                   f"LR {row['min_lr']:.6g} à {row['max_lr']:.6g} | {row['seconds']:.0f}s"
+                  + (f" | perte val {val_loss:.4f} | prochain LR {row['next_lr']:.6g}" if loss_plateau else "")
                   + (f" | arrêt : {stop}" if stop else ""), flush=True)
             if stop:
                 break
@@ -380,6 +493,8 @@ def main():
     os.environ.setdefault("CUBLAS_WORKSPACE_CONFIG", ":4096:8")
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--mode", choices=MODES, required=True)
+    parser.add_argument("--adaptive-policy", choices=("original", "centered", "probe", "loss-plateau"),
+                        default="original", help="Contrôleur pour --mode adaptive.")
     parser.add_argument("--models", nargs="+", choices=tuple(read(CONFIG)["models"]))
     parser.add_argument("--data-dir", type=Path, default=ROOT / "data/food-11")
     parser.add_argument("--output", type=Path)
@@ -389,9 +504,26 @@ def main():
     parser.add_argument("--device", choices=("auto", "cpu", "cuda"), default="auto")
     parser.add_argument("--workers", type=int, default=4)
     parser.add_argument("--threads", type=int, default=4)
+    parser.add_argument("--image-size", type=int,
+                        help="Côté des entrées carrées pour l'entraînement et la validation (128 par défaut).")
+    parser.add_argument("--updates-per-epoch", type=int,
+                        help="Fixe le nombre de lots complets entre deux validations.")
+    parser.add_argument("--epoch-budget", type=int,
+                        help="Exécute exactement ce nombre d'époques, sans arrêt anticipé.")
+    parser.add_argument("--no-train-augmentation", action="store_true",
+                        help="Désactive le retournement aléatoire, même avec le jeu original.")
+    parser.add_argument("--class-metrics", action="store_true", help="Journalise le F1 par classe en validation.")
     args = parser.parse_args()
     if args.workers < 0 or args.threads < 1 or (args.models and len(args.models) != len(set(args.models))):
         parser.error("Nombre de threads, de workers ou sélection de modèles invalide.")
+    if args.adaptive_policy != "original" and args.mode != "adaptive":
+        parser.error("Ce contrôleur exige --mode adaptive.")
+    if args.image_size is not None and args.image_size < 1:
+        parser.error("La taille d'image doit être positive.")
+    if any(value is not None and value < 1 for value in (args.updates_per_epoch, args.epoch_budget)):
+        parser.error("Le nombre de lots ou d'époques doit être positif.")
+    if args.adaptive_policy == "probe" and args.updates_per_epoch is not None:
+        parser.error("Le contrôle par lot distinct exige un parcours sans répétition par époque.")
     if args.freeze_early and (not args.output or not args.models or any(
             name not in ("shufflenet05", "shufflenet10", "mobilenet_v2") for name in args.models)):
         parser.error("Le gel exige --output et une sélection des trois modèles retenus.")
