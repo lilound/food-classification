@@ -1,9 +1,7 @@
 .venv/
 __pycache__/
 *.pyc
-/data/*
-!/data/.gitkeep
-/results/*
-!/results/.gitkeep
+/data/
+/results/
 *.pth
 *.pt

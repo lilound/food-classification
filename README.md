@@ -15,14 +15,18 @@ Depuis la racine du dépôt, avec Python 3.14, exécutez les commandes suivantes
 python -m venv .venv
 source .venv/bin/activate
 python -m pip install -r requirements.txt
-python creer_dataset_equilibre.py
-python main.py train
-python main.py predict
+python -m source.creer_dataset_equilibre
+python -m source train
+python -m source predict
 ```
 
-Le script d'équilibrage conserve le découpage figé et génère des variantes
+Le fichier `source/protocole/split.json` fixe le découpage original. Il contient
+les noms des fichiers répartis entre entraînement et validation. Le script
+d'équilibrage conserve ce découpage et génère des variantes
 déterministes à partir des images d'entraînement. Le jeu obtenu compte
 1 600 images par classe à l'entraînement et 2 659 images en validation.
+L'empreinte SHA-256 affichée pour le jeu utilisé dans le résultat de référence
+est `fc027f4cd0659f961b1169d5a5b31ee87d8bc89c2057396664273baec59f3eff`.
 
 L'entraînement tourne sur CPU, avec la graine 42, des lots de 64 et un
 budget de 22 époques. Adam augmente le taux de `1e-4` à `3e-4` pendant
@@ -33,7 +37,7 @@ la première époque. Le taux est ensuite divisé par deux après deux
 Le fichier `results/history.json` contient les mesures par époque.
 Le checkpoint `results/shufflenet05.pth` contient l'état de reprise et les
 poids ayant obtenu la meilleure frugalité en validation. Utilisez
-`python main.py train --resume` pour reprendre. La commande de prédiction
+`python -m source train --resume` pour reprendre. La commande de prédiction
 exporte les classes dans `results/predictions.json`. Le premier entraînement
 peut télécharger les poids ImageNet.
 

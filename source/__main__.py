@@ -10,11 +10,11 @@ from torch import nn
 from torch.utils.data import DataLoader, RandomSampler
 from torchvision.datasets import ImageFolder
 
-from creer_dataset_equilibre import DEFAULT_OUTPUT, KIT, benchmark_protocol, read_json, verify, write_json
-from models.shufflenet05 import load_model
-from src.dataset import get_transforms
-from src.evaluate import predict_test
-from src.lr_validation import ValidationLossRate
+from .creer_dataset_equilibre import DEFAULT_OUTPUT, KIT, benchmark_protocol, read_json, verify, write_json
+from .shufflenet05 import load_model
+from .dataset import get_transforms
+from .evaluate import predict_test
+from .lr_validation import ValidationLossRate
 
 PROTOCOL = read_json(KIT / "protocol.json")
 CLASSES = read_json(KIT / "split.json")["classes"]

@@ -13,8 +13,9 @@ from tempfile import TemporaryDirectory
 import PIL
 from PIL import Image, ImageEnhance, ImageOps, features
 
-ROOT = Path(__file__).resolve().parent
-KIT = ROOT / "protocole"
+SOURCE_DIR = Path(__file__).resolve().parent
+KIT = SOURCE_DIR / "protocole"
+ROOT = SOURCE_DIR.parent
 DEFAULT_SOURCE = ROOT / "data/food-11"
 DEFAULT_OUTPUT = ROOT / "data/food-11-balanced"
 KIND = "food11-balanced-v1"
