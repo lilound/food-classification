@@ -1,56 +1,10 @@
-# Évalue les performances du réseau de neurones.
-# Calcule l'accuracy, le F1-score et le Frugality score.
-# Génère également les prédictions sur les images de test.
+"""Export des prédictions au format JSON du challenge Food-11."""
+
+import json
+from pathlib import Path
 
 import torch
-import json
-
-from pathlib import Path
 from PIL import Image
-from sklearn.metrics import accuracy_score, f1_score
-
-
-def evaluate(model, val_loader, device):
-    """Évalue le modèle sur les images de validation."""
-
-    model.eval()
-
-    labels_real = []
-    labels_pred = []
-
-    with torch.no_grad():
-
-        for images, labels in val_loader:
-
-            images = images.to(device)
-
-            outputs = model(images)
-            predictions = outputs.argmax(dim=1)
-
-            labels_real.extend(labels.tolist())
-            labels_pred.extend(predictions.cpu().tolist())
-
-    # Calcul des performances
-    accuracy = accuracy_score(labels_real, labels_pred)
-
-    f1 = f1_score(
-        labels_real,
-        labels_pred,
-        average="macro",
-        zero_division=0
-    )
-
-    # Nombre de paramètres (en millions)
-    params = sum(p.numel() for p in model.parameters()) / 1_000_000
-
-    # Frugality score
-    frugality = f1 - 0.3 / (1 + 1 / params)
-
-    return {
-        "accuracy": accuracy,
-        "f1": f1,
-        "frugality": frugality
-    }
 
 
 def predict_test(model, test_dir, transform, classes, device, output_path, batch_size=32):

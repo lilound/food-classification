@@ -1,0 +1,8 @@
+{
+  "dataset_sha256": "8114c015b7249acf7bff163b458639677342c2a8648c7b2411bb91c88f07177e",
+  "seed": 42,
+  "batch_size": 64,
+  "initial_lr": 0.0001,
+  "image_size": 512,
+  "epochs": 22
+}

@@ -14,7 +14,7 @@ import PIL
 from PIL import Image, ImageEnhance, ImageOps, features
 
 ROOT = Path(__file__).resolve().parent
-KIT = ROOT / "benchmark/modeles/protocole"
+KIT = ROOT / "protocole"
 DEFAULT_SOURCE = ROOT / "data/food-11"
 DEFAULT_OUTPUT = ROOT / "data/food-11-balanced"
 KIND = "food11-balanced-v1"

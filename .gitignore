@@ -1,39 +1,9 @@
-# Environnement virtuel
 .venv/
-
-# Cache Python
 __pycache__/
 *.pyc
-*.pyo
-
-# Dataset (conserver uniquement .gitkeep)
 /data/*
 !/data/.gitkeep
-
-# Modèles entraînés
+/results/*
+!/results/.gitkeep
 *.pth
 *.pt
-
-# Données et résultats locaux
-*.csv
-*.json
-!/benchmark/modeles/protocole/protocol.json
-!/benchmark/modeles/protocole/split.json
-/results/
-/benchmark/modeles/executions/
-/benchmark/modeles/resultats/nuit.zip
-/benchmark/modeles/resultats/nuit/journaux/
-/benchmark/modeles/resultats/nuit/index.md
-/benchmark/modeles/resultats/equilibre/
-/benchmark/modeles/resultats/equilibre.zip
-!/benchmark/modeles/resultats/jeu_equilibre/**/*.json
-!/benchmark/modeles/resultats/jeu_equilibre/**/*.csv
-
-# Archives et figures locales du dossier benchmark
-/benchmark/index.md
-/benchmark/experiences/
-/benchmark/courbes_par_modele/
-/benchmark/comparaison/
-/benchmark/protocole/
-/benchmark/nuit/
-/benchmark/nuit.zip
