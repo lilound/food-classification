@@ -1,8 +1,8 @@
 """Lance les trois essais avec gel et compare aux historiques du benchmark modèle."""
 
 import argparse
-import hashlib
-import json
+import hashlib # empreintes SHA-256
+import json 
 import subprocess
 import sys
 from pathlib import Path
@@ -21,13 +21,17 @@ def read(path):
 
 
 def compare(model, reference, frozen, output):
+    """Comparaison de la frugalité par époque."""
     old, new = read(reference / "run.json"), read(frozen / "run.json")
     old_sig, new_sig = old["signature"], new["signature"]
+    # On vérifier que la comparaison est équitable 
     if old_sig != {k: v for k, v in new_sig.items() if k != "freeze_early"} or not new_sig.get("freeze_early") or model not in old["models"] or model not in new["models"]:
         raise ValueError(f"Protocoles incompatibles pour {model}.")
+    # On vérifie le mode de taux d'apprentissage
     if old_sig["mode"] != MODELS[model]:
         raise ValueError(f"Mauvais taux de référence pour {model}.")
     fig, ax = plt.subplots()
+    # On trace une courbe de référence (sans gel des couches), et une courbe avec gel des couches
     for label, directory in (("Sans gel", reference), ("Avec gel", frozen)):
         rows = [row for row in read(directory / "history.json") if row["model"] == model]
         if not rows:
@@ -40,29 +44,32 @@ def compare(model, reference, frozen, output):
     output.mkdir(parents=True, exist_ok=True)
     fig.savefig(output / f"frugalite_{model}.png", dpi=160)
     fig.savefig(output / f"frugalite_{model}.svg")
-    plt.close(fig)
+    plt.close(fig) # libération de la mémoire
 
 
 def main():
+    # Arguments en ligne de commande :
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--data-dir", type=Path, required=True)
     parser.add_argument("--reference", type=Path, required=True, help="Dossier benchmark_nuit contenant fixed/ et adaptive/.")
     parser.add_argument("--output", type=Path, default=ROOT / "benchmark/gel_couches/executions")
     parser.add_argument("--device", choices=("auto", "cpu", "cuda"), default="auto")
-    parser.add_argument("--workers", type=int, default=4)
-    parser.add_argument("--threads", type=int, default=4)
+    parser.add_argument("--workers", type=int, default=4) # processus de chargement des données
+    parser.add_argument("--threads", type=int, default=4) # threads de calcul CPU
     parser.add_argument("--freeze-level", choices=("early", "strong"), default="early")
-    parser.add_argument("--resume", action="store_true")
+    parser.add_argument("--resume", action="store_true") # gérer un run interrompu
     args = parser.parse_args()
     script_dir = str(Path(__file__).resolve().parent)
     if script_dir in sys.path:
         sys.path.remove(script_dir)
     sys.path.insert(0, str(ROOT))
     from benchmark.modeles import benchmark_lr
+    # Empreintes du protocole et du split train
     protocol = benchmark_lr.read(benchmark_lr.CONFIG)
     split = benchmark_lr.fingerprint(benchmark_lr.read(benchmark_lr.SPLIT))
     protocol_hash = hashlib.sha256(benchmark_lr.fingerprint(protocol) + split).hexdigest()
     split_hash = hashlib.sha256(split).hexdigest()
+    # On vérifie les références
     for model, mode in MODELS.items():
         reference = args.reference / mode
         if not (reference / "run.json").is_file() or not (reference / "history.json").is_file():
@@ -75,6 +82,7 @@ def main():
                 or (mode == "fixed" and signature.get("fixed_lr") != protocol["initial_lr"])
                 or (mode == "adaptive" and signature.get("policy_sha256") != hashlib.sha256(benchmark_lr.fingerprint(benchmark_lr.POLICY)).hexdigest())):
             parser.error(f"Référence incompatible : {model} dans {reference}")
+    # Entraînement en mode gel
     for model, mode in MODELS.items():
         result = args.output / model
         command = [sys.executable, "-u", str(RUNNER), "--mode", mode, "--models", model,
@@ -84,7 +92,9 @@ def main():
             command.extend(["--freeze-level", "strong"])
         if args.resume and result.exists():
             command.append("--resume")
-        subprocess.run(command, check=True)
+        subprocess.run(command, check=True) 
+        # Le modèle est entraîné (si tout est ok)
+        # On génère le graphe comparatif
         compare(model, args.reference / mode, result, args.output / "graphiques")
 
 
