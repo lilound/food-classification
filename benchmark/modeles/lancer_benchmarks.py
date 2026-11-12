@@ -16,6 +16,7 @@ from benchmark.modeles.export_benchmark import CONFIG, KIT, MODES, ROOT, SPLIT, 
 
 
 def devices(kind, jobs):
+    """Liste les "emplacements" de calcul : un GPU par job, complété par des CPU si besoin."""
     count = torch.cuda.device_count() if kind != "cpu" else 0
     visible = os.environ.get("CUDA_VISIBLE_DEVICES")
     tokens = visible.split(",") if visible is not None else list(map(str, range(count)))
@@ -27,6 +28,7 @@ def devices(kind, jobs):
 
 
 def command(mode, source, args):
+    """Construit la commande qui lance benchmark_lr.py pour un mode."""
     base = [sys.executable, "-u", str(KIT / "benchmark_lr.py"), "--mode", mode]
     base += ["--data-dir", str(args.data_dir.resolve()), "--output", str(source.resolve()),
              "--threads", str(args.threads), "--workers", str(args.workers)]
@@ -36,6 +38,7 @@ def command(mode, source, args):
 
 
 def complete(snapshot, expected):
+    """Vérifie que tous les modèles attendus ont fini leur entraînement"""
     return bool(snapshot and
                 {row["model"] for row in snapshot["summary"] if row["stop"]} == set(expected))
 
@@ -76,6 +79,7 @@ def run(args):
     if not args.resume and (any(path.exists() for path in sources.values()) or output.exists()):
         raise FileExistsError("Dossier déjà présent : utilisez --resume ou choisissez de nouveaux chemins.")
     root.mkdir(parents=True, exist_ok=True)
+    # Ajout d'un verrou
     lock = root / ".lancement.lock"
     with lock.open("x", encoding="utf-8") as stream:
         stream.write(f"{os.getpid()}\n")
@@ -87,6 +91,7 @@ def run(args):
     plan = {"runs": str(root), "modes": args.modes}
 
     def report():
+        """Régénère le dossier de rendu depuis les historiques."""
         nonlocal last
         try:
             snapshots = {mode: read_run(source) for mode, source in sources.items()}
@@ -123,6 +128,7 @@ def run(args):
                 queue.append(mode)
         next_report = 0.0
         while queue or children:
+            # 1. Lancer les modes en attente tant qu'il y a des emplacements libres
             while queue and slots:
                 mode = queue.pop(0)
                 kind, token = slots.pop(0)
@@ -146,6 +152,7 @@ def run(args):
                 except OSError as exc:
                     slots.append((kind, token))
                     results[mode] = {"etat": "échec", "erreur": str(exc)}
+            # 2. Vérifier les processus terminés et libérer leur emplacement
             for mode, (proc, slot) in list(children.items()):
                 code = proc.poll()
                 if code is not None:
@@ -158,7 +165,8 @@ def run(args):
                         success = False
                     results[mode].update(etat="terminé" if success else "échec", code_retour=code)
                     print(f"{mode} : {results[mode]['etat']} (code {code})", flush=True)
-                    next_report = 0.0
+                    next_report = 0.0 # rendu immédiat
+            # 3. Rendu intermédiaire toutes les 60 s
             now = time.monotonic()
             if now >= next_report:
                 report()
