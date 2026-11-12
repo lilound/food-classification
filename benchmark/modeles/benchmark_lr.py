@@ -29,6 +29,7 @@ CONFIG = KIT / "protocole/protocol.json"
 SPLIT = KIT / "protocole/split.json"
 MODES = ("fixed", "adaptive", "cosine")
 
+# Réglages de la politique adaptative (gain : sensibilité de la variation du LR, smoothing : lissage de l'alignement des gradients, max_lr_factor : le LR ne peut pas dépasser 3 × le LR initial)
 POLICY = {"gain": 0.02, "smoothing": 0.95, "max_lr_factor": 3.0}
 
 
@@ -36,18 +37,20 @@ class AdaptiveRate:
     """Approximation normalisée de l'hypergradient sur la tête de classification."""
 
     def __init__(self, optimizer, head, plateau_options):
-        self.head = head
-        self.direction = None
-        self.alignment = 0.0
+        self.head = head # poids de la dernière couche
+        self.direction = None # dernier déplacement effectif de la tête
+        self.alignment = 0.0 
         self.rates = []
         self.group = optimizer.param_groups[0]
         self.floor = plateau_options["min_lr"]
         self.ceiling = POLICY["max_lr_factor"] * self.group["lr"]
+        # Scheduler pour réduire le LR quand le score stagne
         self.plateau = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, **plateau_options)
 
     @torch.no_grad()
     def before_step(self):
         if self.direction is not None and self.head.grad is not None:
+            # Cosinus entre le gradient et le déplacement du aps précédent
             cosine = cosine_similarity(self.head.grad.reshape(-1), self.direction.reshape(-1),
                                        dim=0, eps=1e-12).item()
             if math.isfinite(cosine):
@@ -56,6 +59,7 @@ class AdaptiveRate:
                 lr = self.group["lr"] * math.exp(POLICY["gain"] * self.alignment)
                 self.group["lr"] = min(self.ceiling, max(self.floor, lr))
         self.rates.append(self.group["lr"])
+        # On renvoie une copie des poids avant le pas, pour calculer le déplacement ensuite
         return self.head.detach().clone()
 
     @torch.no_grad()
@@ -72,6 +76,7 @@ class AdaptiveRate:
         self.group["lr"] = min(self.ceiling, max(self.floor, lr * (self.ceiling / old_ceiling)))
 
     def state_dict(self):
+        # On sauvegarde l'état dans le checkpoint pour pouvoir reprendre l'entraînement
         return dict(direction=self.direction, alignment=self.alignment,
                     ceiling=self.ceiling, plateau=self.plateau.state_dict())
 
@@ -86,6 +91,7 @@ class AdaptiveRate:
 
 
 def fingerprint(value):
+    """Sérialise un objet en JSON compact et déterministe (en octets), pour le hasher."""
     return json.dumps(value, ensure_ascii=False, separators=(",", ":")).encode()
 
 
@@ -106,6 +112,8 @@ def save_checkpoint(path, payload):
 
 
 def verified_split(data_dir, protocol):
+    """Charge le dataset et vérifie qu'il correspond au découpage figé.
+    Renvoi : sous-ensembles train et validation."""
     root = find_data_folder(data_dir, ("train", "training"))
     dataset = ImageFolder(root, transform=get_transforms(size=protocol["image_size"]))
     split = read(SPLIT)
@@ -128,13 +136,14 @@ def verified_split(data_dir, protocol):
 
 
 def freeze_early_layers(model, name, level="early"):
+    """Gèle les premières couches du modèle. Renvoi : liste des modules gelés."""
     if level not in ("early", "strong", "more") or (level == "more" and name != "shufflenet05"):
         raise ValueError(f"Niveau de gel inconnu : {level}")
     if name in ("shufflenet05", "shufflenet10"):
         modules = [model.conv1, model.stage2]
         if level in ("strong", "more"):
             modules.append(model.stage3)
-        if level == "more":
+        if level == "more": # que pour shufflenet05
             modules.append(model.stage4)
     elif name == "mobilenet_v2":
         modules = list(model.features[:14 if level == "strong" else 7])
@@ -148,6 +157,7 @@ def freeze_early_layers(model, name, level="early"):
 
 def run_epoch(model, loader, criterion, device, optimizer=None, seed=None, controller=None, frozen_modules=()):
     training = optimizer is not None
+    # On remet tout en mode entraînement : on re-fige les modules gelés
     model.train(training)
     for module in frozen_modules:
         module.eval()
@@ -159,6 +169,7 @@ def run_epoch(model, loader, criterion, device, optimizer=None, seed=None, contr
     with torch.set_grad_enabled(training):
         for images, labels in loader:
             if training:
+                # flip horizontal pour environ la moitié des images du batch
                 mask = torch.rand(len(images), generator=flips) < 0.5
                 images[mask] = images[mask].flip(-1)
             images = images.to(device, memory_format=torch.channels_last)
@@ -169,6 +180,7 @@ def run_epoch(model, loader, criterion, device, optimizer=None, seed=None, contr
             loss = criterion(logits, device_labels)
             if training:
                 loss.backward()
+                # Le contrôleur adaptatif ajuste le LR entre backward et step
                 before = controller.before_step() if controller else None
                 optimizer.step()
                 if controller:
@@ -182,6 +194,7 @@ def run_epoch(model, loader, criterion, device, optimizer=None, seed=None, contr
         raise RuntimeError("Perte non finie : la dernière époque valide reste disponible.")
     if training:
         return mean_loss
+    # Validation : perte, accuracy et F1 macro
     return mean_loss, float(accuracy_score(targets, predictions)), float(
         f1_score(targets, predictions, labels=list(range(11)), average="macro", zero_division=0))
 
@@ -206,8 +219,10 @@ def update_reports(out, states):
 
 
 def progress(protocol, score, reference, stale, epoch):
+    """Logique d'arrêt anticipé (early stopping).
+    Paramètres : reference = meilleur score vu ; stale = nombre d'époques sans amélioration."""
     if score >= reference + protocol["min_delta"]:
-        reference, stale = score, 0
+        reference, stale = score, 0 # amélioration suffisante : on réinitialise le compteur
     else:
         stale += 1
     stop = None
@@ -221,10 +236,12 @@ def progress(protocol, score, reference, stale, epoch):
 def run(args):
     protocol = read(CONFIG)
     selected = args.models or list(protocol["models"])
+    # On désactive tout ce qui rend les calculs non déterministes 
     torch.set_num_threads(args.threads)
     torch.set_float32_matmul_precision("highest")
     torch.backends.cudnn.allow_tf32 = False
     torch.use_deterministic_algorithms(True, warn_only=True)
+    # Choix du device
     use_cuda = args.device != "cpu" and torch.cuda.is_available()
     if args.device == "cuda" and not use_cuda:
         raise RuntimeError("CUDA demandé mais indisponible.")
@@ -232,6 +249,7 @@ def run(args):
     dependencies = check_dependencies()
     train, val = verified_split(args.data_dir, protocol)
     split_bytes = fingerprint(read(SPLIT))
+    # Signature de l'éxécution
     signature = {
         "mode": args.mode,
         "protocol_sha256": hashlib.sha256(fingerprint(protocol) + split_bytes).hexdigest(),
@@ -253,9 +271,11 @@ def run(args):
         "adaptive": "benchmark_lr_adaptive",
         "cosine": "benchmark_lr_cosine",
     }[args.mode]
+    # Si il y a une reprise ou un nouveau run 
     states = {}
     if args.resume:
         metadata = read(out / "run.json")
+        # Vérification de la signature
         if metadata["signature"] != signature or metadata["models"] != selected:
             raise ValueError("Protocole ou sélection de modèles incompatible avec la reprise.")
         metadata["machines"].append(machine)
@@ -267,6 +287,7 @@ def run(args):
                 del saved
         update_reports(out, states)
     else:
+        # On vérifie qu'on n'écrase pas un run existant
         out.mkdir(parents=True, exist_ok=False)
         metadata = dict(signature=signature, models=selected, policy=POLICY, machines=[machine])
     write(out / "run.json", metadata)
@@ -274,6 +295,7 @@ def run(args):
 
     options = dict(batch_size=protocol["batch_size"], num_workers=args.workers,
                    persistent_workers=args.workers > 0)
+    # Le sampler aléatoire a son propre générateur, ré-initialisé à chaque époque dans run_epoch
     train_loader = DataLoader(train, sampler=RandomSampler(train, generator=torch.Generator()),
                               generator=torch.Generator().manual_seed(protocol["seed"]), **options)
     val_loader = DataLoader(val, generator=torch.Generator().manual_seed(protocol["seed"]), **options)
@@ -283,25 +305,32 @@ def run(args):
             continue
         path = out / f"{name}.pth"
         torch.manual_seed(protocol["seed"])
+        # On utilise des poids Pré-entraînés si pas de checkpoint
         model = load_model(name, 11, pretrained=not path.exists(), weight_id=weights)
+        # Gel des premières couches si demandé
         frozen_modules = freeze_early_layers(model, name, getattr(args, "freeze_level", "early")) if getattr(args, "freeze_early", False) else ()
         params = sum(p.numel() for p in model.parameters())
         if params != expected:
             raise ValueError(f"{name} : attendu {expected} paramètres, obtenu {params}.")
         model.to(device, dtype=torch.float32, memory_format=torch.channels_last)
+        # Adam n'optimise que les paramètres non gelés
         optimizer = torch.optim.Adam((p for p in model.parameters() if p.requires_grad), lr=protocol["initial_lr"])
         if frozen_modules:
             print(f"{name}: {sum(p.numel() for p in model.parameters() if p.requires_grad)} paramètres entraînables / {params} au total", flush=True)
-        controller = None
-        scheduler = None
+        # Statégie des taux d'apprentissage
+        controller = None # si adaptatif
+        scheduler = None # si cosine
         if args.mode == "adaptive":
+            # La "tête" = dernière couche Linear ou Conv2d du modèle (la couche de classification)
             head = [m for m in model.modules() if isinstance(m, (nn.Linear, nn.Conv2d))][-1]
             if head.weight.shape[0] != 11:
                 raise ValueError(f"{name} : tête de classification non reconnue.")
             controller = AdaptiveRate(optimizer, head.weight, protocol["scheduler"])
         elif args.mode == "cosine":
+            # LR qui décroît en cosinus du LR initial jusqu'à min_lr sur max_epochs époques
             scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
                 optimizer, T_max=protocol["max_epochs"], eta_min=protocol["scheduler"]["min_lr"])
+        # Reprise depuis un checkpoint
         history, best_weights, reference, stale = [], None, -math.inf, 0
         if path.exists():
             saved = torch.load(path, map_location="cpu", weights_only=True)
@@ -315,6 +344,7 @@ def run(args):
                 saved["history"], saved["best_weights"], saved["reference"], saved["stale"])
             del saved
         best = max((row["frugality"] for row in history), default=-math.inf)
+        # Boucle sur les époques
         for epoch in range(len(history) + 1, protocol["max_epochs"] + 1):
             seed = protocol["seed"] + 10_000 * index + 3 * epoch
             torch.manual_seed(seed)
@@ -327,16 +357,19 @@ def run(args):
             else:
                 train_loss = run_epoch(model, train_loader, criterion, device, optimizer, seed, controller)
             val_loss, accuracy, f1 = run_epoch(model, val_loader, criterion, device)
+            # Calcul du score de frugalité
             frugality = f1 - 0.3 * params / (1_000_000 + params)
             if frugality > best:
                 best = frugality
                 best_weights = {k: v.detach().cpu().clone() for k, v in model.state_dict().items()}
+            # Update de l'arrêt anticipé
             reference, stale, stop = progress(protocol, frugality, reference, stale, epoch)
+            # Update du LR en fin d'époque
             if controller is not None:
                 controller.validate(frugality)
             elif scheduler is not None:
                 scheduler.step()
-            rates = controller.rates if controller is not None else [epoch_lr]
+            rates = controller.rates if controller is not None else [epoch_lr] # LR utilisés pendant l'époque
             row = dict(model=name, epoch=epoch, params=params, lr=rates[0],
                        min_lr=min(rates), max_lr=max(rates), mean_lr=sum(rates) / len(rates),
                        next_lr=optimizer.param_groups[0]["lr"],
@@ -345,6 +378,7 @@ def run(args):
             if controller is not None:
                 row["lr_ceiling"] = controller.ceiling
             history.append(row)
+            # Checkpoint (après chaque époque) :
             save_checkpoint(path, dict(weights=model.state_dict(), best_weights=best_weights,
                                        optimizer=optimizer.state_dict(), scheduler=(controller or scheduler).state_dict() if controller or scheduler else None,
                                        history=history, reference=reference, stale=stale, stop=stop))
@@ -355,6 +389,7 @@ def run(args):
                   + (f" | arrêt : {stop}" if stop else ""), flush=True)
             if stop:
                 break
+        # Libération de la mémoire
         del controller, scheduler, optimizer, model, best_weights
 
 
@@ -372,6 +407,7 @@ def main():
     parser.add_argument("--workers", type=int, default=4)
     parser.add_argument("--threads", type=int, default=4)
     args = parser.parse_args()
+    # Validation des arguments 
     if args.workers < 0 or args.threads < 1 or (args.models and len(args.models) != len(set(args.models))):
         parser.error("Nombre de threads, de workers ou sélection de modèles invalide.")
     if args.freeze_early and (not args.output or not args.models or any(name not in ("shufflenet05", "shufflenet10", "mobilenet_v2") for name in args.models)):
