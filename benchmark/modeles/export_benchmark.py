@@ -78,6 +78,7 @@ def chart_style(ax):
 
 
 def draw_line(ax, rows, label, color, style):
+    """Trace une courbe de frugalité et marque la meilleure époque d'un point."""
     if not rows:
         return
     best = max(rows, key=lambda row: row["frugality"])
@@ -88,6 +89,7 @@ def draw_line(ax, rows, label, color, style):
 
 
 def save_figure(fig, path):
+    """Sauvegarde la figure en PNG et SVG, puis ferme la figure"""
     path.parent.mkdir(parents=True, exist_ok=True)
     for extension in ("png", "svg"):
         target = path.with_suffix(f".{extension}")
@@ -101,6 +103,7 @@ def render(output, snapshots, protocol, split, pending):
     names = protocol["models"]
     split_hash = hashlib.sha256(encode(split)).hexdigest()
     protocol_hash = hashlib.sha256(encode(protocol) + encode(split)).hexdigest()
+    # Validation : on vérifie que chaque run corresponde au protocole figé
     runs = {}
     for snapshot in snapshots:
         signature = snapshot["run"]["signature"]
@@ -118,6 +121,7 @@ def render(output, snapshots, protocol, split, pending):
     curves = {mode: {model: sorted((row for row in snapshot["history"] if row["model"] == model),
                                   key=lambda row: row["epoch"]) for model in names}
               for mode, snapshot in runs.items()}
+    # Archivage
     write_json(output / "protocole" / "protocol.json", protocol)
     write_json(output / "protocole" / "split.json", split)
     for mode, snapshot in runs.items():
@@ -126,7 +130,7 @@ def render(output, snapshots, protocol, split, pending):
             write_json(raw / f"{key}.json", payload)
         for key in ("history", "summary"):
             write_csv(raw / f"{key}.csv", snapshot[key])
-
+    # Graphique individuel
     for model, (label, _, _) in names.items():
         if not any(curves[mode][model] for mode in runs):
             continue
@@ -137,7 +141,7 @@ def render(output, snapshots, protocol, split, pending):
         ax.set_title(f"Food-11 · {label}")
         ax.legend(frameon=False, loc="lower right")
         save_figure(fig, output / "courbes_par_modele" / f"frugalite_{model}")
-
+    # Graphique d'ensemble 
     if runs:
         fig, axes = plt.subplots(1, len(runs), figsize=(max(8, 5.1 * len(runs)), 5.8),
                                  sharex=True, sharey=True, squeeze=False, layout="constrained")
@@ -155,7 +159,7 @@ def render(output, snapshots, protocol, split, pending):
         fig.legend(handles=[handles[model] for model in names if model in handles],
                    loc="outside lower center", ncols=min(5, len(handles)), frameon=False)
         save_figure(fig, output / "comparaison" / "frugalite_toutes_courbes")
-
+    # Tableau des scores
     comparison = []
     for model, (label, _, _) in names.items():
         available = {mode: {row["epoch"]: row for row in curves[mode][model]}
@@ -171,7 +175,7 @@ def render(output, snapshots, protocol, split, pending):
                                    epoque_commune=epoch, frugalite_epoque_commune=epochs[epoch]["frugality"] if epoch else None))
     if comparison:
         write_csv(output / "comparaison" / "scores.csv", comparison)
-
+    #  Création de index.md (page d'accueil du dossier de résultats)
     date = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
     lines = ["# Food-11 — dossier de résultats", "", f"Dernière actualisation : {date}.", "",
              "Chaque point est une époque mesurée en validation. Le point mis en évidence marque le meilleur score disponible.",
@@ -228,9 +232,9 @@ def main():
             if snapshot:
                 snapshots.append(snapshot)
             else:
-                pending.append(path)
+                pending.append(path) # dossier sans résultats exploitables
         current = (snapshots, pending)
-        if current != last:
+        if current != last: # regénération si les données ont changé
             render(args.output, snapshots, protocol, split, pending)
             print(f"Export : {sum(len(s['history']) for s in snapshots)} époques → {args.output}", flush=True)
             last = current
