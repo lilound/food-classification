@@ -89,12 +89,13 @@ def train(data, output, resume):
     model = load_model(len(CLASSES), pretrained=not resume)
     model.to(memory_format=torch.channels_last)
     # Gel
+    # Seuls stage4 et la tête de classification sont entraînés
     frozen = model.conv1, model.stage2, model.stage3
     for block in frozen:
         block.requires_grad_(False)
-    params = sum(p.numel() for p in model.parameters())
+    params = sum(p.numel() for p in model.parameters()) # total, gelés inclus (sert à la frugalité)
     optimizer = torch.optim.Adam((p for p in model.parameters() if p.requires_grad), lr=PROTOCOL["initial_lr"])
-    rate = ValidationLossRate(optimizer, len(train_loader))
+    rate = ValidationLossRate(optimizer, len(train_loader)) # warmup puis réduction du LR sur plateau de la perte de validation
     criterion = nn.CrossEntropyLoss()
     history, best_weights = [], None
     # Reprise 
@@ -109,6 +110,7 @@ def train(data, output, resume):
 
     best = max((row["frugality"] for row in history), default=-math.inf)
     for epoch in range(len(history) + 1, PROTOCOL["epochs"] + 1):
+        # Graine propre à chaque époque 
         epoch_seed = seed + 3 * epoch
         torch.manual_seed(epoch_seed)
         sampler.generator.manual_seed(epoch_seed)
@@ -117,6 +119,7 @@ def train(data, output, resume):
         val_loss, accuracy, f1 = run_epoch(model, val_loader, criterion, frozen)
         rate.validate(val_loss)
         # Calcul de frugalité
+        # F1 pénalisé par la taille du modèle ; c'est ce score qui choisit le meilleur modèle
         score = f1 - 0.3 * params / (1_000_000 + params)
         if score > best:
             best = score
@@ -135,6 +138,7 @@ def train(data, output, resume):
 
 
 def main():
+    # Arguments 
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest="command", required=True)
     training = commands.add_parser("train", help="Entraîne et choisit le meilleur checkpoint en validation.")
