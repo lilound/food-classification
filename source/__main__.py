@@ -16,7 +16,7 @@ from .dataset import get_transforms
 from .evaluate import predict_test
 from .lr_validation import ValidationLossRate
 
-PROTOCOL = read_json(KIT / "protocol.json")
+PROTOCOL = read_json(KIT / "protocol.json") # hyperparamètres figs
 CLASSES = read_json(KIT / "split.json")["classes"]
 
 
@@ -38,7 +38,7 @@ def run_epoch(model, loader, loss_fn, frozen, optimizer=None, rate=None):
             loss = loss_fn(logits, labels)
             if training:
                 loss.backward()
-                rate.before_step()
+                rate.before_step() # hook du contrôleur de LR
                 optimizer.step()
                 rate.after_step(None)
             else:
@@ -51,6 +51,7 @@ def run_epoch(model, loader, loss_fn, frozen, optimizer=None, rate=None):
         raise RuntimeError("Perte non finie. Le dernier checkpoint est disponible.")
     if training:
         return loss
+    # Validation
     return loss, accuracy_score(targets, predictions), f1_score(
         targets, predictions, labels=list(range(len(CLASSES))), average="macro", zero_division=0)
 
@@ -58,15 +59,17 @@ def run_epoch(model, loader, loss_fn, frozen, optimizer=None, rate=None):
 def train(data, output, resume):
     split = read_json(KIT / "split.json")
     protocol, _ = benchmark_protocol(data, PROTOCOL, split)
+    # Vérifie que le jeu équilibré est bien celui du protocole
     metadata = verify(data)
     if (metadata["dataset_sha256"] != protocol["dataset_sha256"]
             or metadata["train_per_class"] != 1600 or metadata["seed"] != PROTOCOL["seed"]):
         raise ValueError("Le jeu équilibré doit correspondre au protocole Food-11 du rendu.")
-
+    # Reproductibilité
     seed = PROTOCOL["seed"]
     torch.use_deterministic_algorithms(True, warn_only=True)
     torch.set_float32_matmul_precision("highest")
     torch.manual_seed(seed)
+    # Data
     transform = get_transforms(PROTOCOL["image_size"])
     training = ImageFolder(data / "train", transform=transform)
     validation = ImageFolder(data / "validation", transform=transform)
@@ -82,9 +85,10 @@ def train(data, output, resume):
     checkpoint = output / "shufflenet05.pth"
     if checkpoint.exists() and not resume:
         raise FileExistsError(f"{checkpoint} existe déjà. Utilisez --resume ou un autre dossier.")
-
+    # Modèle
     model = load_model(len(CLASSES), pretrained=not resume)
     model.to(memory_format=torch.channels_last)
+    # Gel
     frozen = model.conv1, model.stage2, model.stage3
     for block in frozen:
         block.requires_grad_(False)
@@ -93,6 +97,7 @@ def train(data, output, resume):
     rate = ValidationLossRate(optimizer, len(train_loader))
     criterion = nn.CrossEntropyLoss()
     history, best_weights = [], None
+    # Reprise 
     if resume:
         saved = torch.load(checkpoint, map_location="cpu", weights_only=True)
         if saved["protocol"] != protocol:
@@ -111,6 +116,7 @@ def train(data, output, resume):
         train_loss = run_epoch(model, train_loader, criterion, frozen, optimizer, rate)
         val_loss, accuracy, f1 = run_epoch(model, val_loader, criterion, frozen)
         rate.validate(val_loss)
+        # Calcul de frugalité
         score = f1 - 0.3 * params / (1_000_000 + params)
         if score > best:
             best = score
@@ -118,6 +124,7 @@ def train(data, output, resume):
         history.append(dict(epoch=epoch, train_loss=train_loss, val_loss=val_loss,
                             accuracy=float(accuracy), f1=float(f1), frugality=float(score),
                             next_lr=optimizer.param_groups[0]["lr"]))
+        # Checkpoint
         temp = checkpoint.with_suffix(".tmp")
         torch.save(dict(weights=model.state_dict(), best_weights=best_weights, history=history,
                         optimizer=optimizer.state_dict(), scheduler=rate.state_dict(), protocol=protocol), temp)
@@ -144,6 +151,7 @@ def main():
     if args.command == "train":
         train(args.data_dir, args.output, args.resume)
     else:
+        # Prediction
         saved = torch.load(args.checkpoint, map_location="cpu", weights_only=True)
         model = load_model(len(CLASSES), pretrained=False)
         model.load_state_dict(saved["best_weights"])
