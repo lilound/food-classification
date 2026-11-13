@@ -69,13 +69,14 @@ def train(data, output, resume):
     torch.use_deterministic_algorithms(True, warn_only=True)
     torch.set_float32_matmul_precision("highest")
     torch.manual_seed(seed)
-    # Data
+    # Data : dossiers train/ et validation/ du jeu équilibré, avec le même prétraitement
     transform = get_transforms(PROTOCOL["image_size"])
     training = ImageFolder(data / "train", transform=transform)
     validation = ImageFolder(data / "validation", transform=transform)
     if training.classes != CLASSES or validation.classes != CLASSES:
         raise ValueError("Les classes diffèrent du découpage du rendu.")
     batch_size = PROTOCOL["batch_size"]
+    # Le sampler mélange le train à chaque époque ; son générateur est réinitialisé plus bas
     sampler = RandomSampler(training, generator=torch.Generator())
     train_loader = DataLoader(training, batch_size=batch_size, sampler=sampler,
                               generator=torch.Generator().manual_seed(seed))
@@ -83,9 +84,10 @@ def train(data, output, resume):
                             generator=torch.Generator().manual_seed(seed))
     output.mkdir(parents=True, exist_ok=True)
     checkpoint = output / "shufflenet05.pth"
+    # Protection : on n'écrase jamais un entraînement existant sans --resume
     if checkpoint.exists() and not resume:
         raise FileExistsError(f"{checkpoint} existe déjà. Utilisez --resume ou un autre dossier.")
-    # Modèle
+    # Modèle : poids préentraînés au départ, poids du checkpoint en cas de reprise
     model = load_model(len(CLASSES), pretrained=not resume)
     model.to(memory_format=torch.channels_last)
     # Gel
@@ -94,11 +96,12 @@ def train(data, output, resume):
     for block in frozen:
         block.requires_grad_(False)
     params = sum(p.numel() for p in model.parameters()) # total, gelés inclus (sert à la frugalité)
+    # L'optimiseur Adam ne reçoit que les paramètres non gelés
     optimizer = torch.optim.Adam((p for p in model.parameters() if p.requires_grad), lr=PROTOCOL["initial_lr"])
     rate = ValidationLossRate(optimizer, len(train_loader)) # warmup puis réduction du LR sur plateau de la perte de validation
     criterion = nn.CrossEntropyLoss()
     history, best_weights = [], None
-    # Reprise 
+    # Reprise : on recharge poids, optimiseur, état du LR et historique
     if resume:
         saved = torch.load(checkpoint, map_location="cpu", weights_only=True)
         if saved["protocol"] != protocol:
@@ -109,15 +112,17 @@ def train(data, output, resume):
         history, best_weights = saved["history"], saved["best_weights"]
 
     best = max((row["frugality"] for row in history), default=-math.inf)
+    # On repart de la dernière époque terminée
     for epoch in range(len(history) + 1, PROTOCOL["epochs"] + 1):
         # Graine propre à chaque époque 
         epoch_seed = seed + 3 * epoch
         torch.manual_seed(epoch_seed)
         sampler.generator.manual_seed(epoch_seed)
-        rate.rates.clear()
+        rate.rates.clear() # liste des LR de l'époque, remise à zéro
         train_loss = run_epoch(model, train_loader, criterion, frozen, optimizer, rate)
         val_loss, accuracy, f1 = run_epoch(model, val_loader, criterion, frozen)
-        rate.validate(val_loss)
+        rate.validate(val_loss) # le scheduler décide de réduire ou non le LR selon la perte de validation
+
         # Calcul de frugalité
         # F1 pénalisé par la taille du modèle ; c'est ce score qui choisit le meilleur modèle
         score = f1 - 0.3 * params / (1_000_000 + params)
@@ -127,7 +132,8 @@ def train(data, output, resume):
         history.append(dict(epoch=epoch, train_loss=train_loss, val_loss=val_loss,
                             accuracy=float(accuracy), f1=float(f1), frugality=float(score),
                             next_lr=optimizer.param_groups[0]["lr"]))
-        # Checkpoint
+        # Checkpoint écrit dans un fichier temporaire puis renommé :
+        # un plantage en pleine écriture ne corrompt pas le checkpoint précédent
         temp = checkpoint.with_suffix(".tmp")
         torch.save(dict(weights=model.state_dict(), best_weights=best_weights, history=history,
                         optimizer=optimizer.state_dict(), scheduler=rate.state_dict(), protocol=protocol), temp)
@@ -141,14 +147,18 @@ def main():
     # Arguments 
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest="command", required=True)
+    # ---- Sous-commande train : python script.py train [options] ----
     training = commands.add_parser("train", help="Entraîne et choisit le meilleur checkpoint en validation.")
-    training.add_argument("--data-dir", type=Path, default=DEFAULT_OUTPUT)
-    training.add_argument("--output", type=Path, default=Path("results"))
-    training.add_argument("--resume", action="store_true")
+    training.add_argument("--data-dir", type=Path, default=DEFAULT_OUTPUT) # jeu équilibré (train/validation)
+    training.add_argument("--output", type=Path, default=Path("results")) # dossier des checkpoints et de l'historique
+    training.add_argument("--resume", action="store_true") # reprendre depuis le dernier checkpoint
+
+    # ---- Sous-commande predict : python script.py predict [options] ----
     prediction = commands.add_parser("predict", help="Exporte les prédictions du meilleur checkpoint.")
-    prediction.add_argument("--checkpoint", type=Path, default=Path("results/shufflenet05.pth"))
-    prediction.add_argument("--test-dir", type=Path, default=DEFAULT_OUTPUT / "test")
-    prediction.add_argument("--output", type=Path, default=Path("results/predictions.json"))
+    prediction.add_argument("--checkpoint", type=Path, default=Path("results/shufflenet05.pth")) # checkpoint produit par train
+    prediction.add_argument("--test-dir", type=Path, default=DEFAULT_OUTPUT / "test") # images de test à prédire
+    prediction.add_argument("--output", type=Path, default=Path("results/predictions.json")) # fichier de prédictions
+args = parser.parse_args()
     args = parser.parse_args()
 
     torch.set_num_threads(4)
