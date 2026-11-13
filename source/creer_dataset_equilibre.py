@@ -133,6 +133,7 @@ def build(source, output, split, expected_sha, per_class, seed, test_count=3097)
         stage.mkdir()
 
         def add(name, source_name, recipe=None, sha=None):
+            # Ajoute une image au jeu : copie de l'original
             dst = stage / relative_path(name)
             original = source / relative_path(source_name)
             dst.parent.mkdir(parents=True, exist_ok=True)
@@ -140,22 +141,27 @@ def build(source, output, split, expected_sha, per_class, seed, test_count=3097)
                 shutil.copyfile(original, dst)
             else:
                 augment(original, dst, recipe)
+            # Ligne du manifeste : où est l'image, d'où elle vient, quelle transformation, quel hash
             entries.append({"path": name, "source": source_name, "transform": recipe,
                             "sha256": sha or file_digest(dst)})
 
         for label, group in grouped.items():
+            # 1. On garde tous les originaux d'entraînement de la classe
             for name in group:
                 add(f"train/{name}", f"train/{name}", sha=source_hashes[name])
+            # 2. On mélange les images de la classe (graine fixée, donc reproductible)
             order = list(group)
             random.Random(f"{KIND}:{seed}:{label}").shuffle(order)
-            missing = per_class - len(group)
+            missing = per_class - len(group) # nombre de variantes à créer pour atteindre le quota
             for i in range(missing):
                 name = order[i % len(order)]
                 recipe = recipe_for(seed, label, i)
                 add(f"train/{label}/__augmented_v1__/{i:04d}.jpg", f"train/{name}", recipe)
+                # Vérification qu'aucune image d'entraînement n'a été utilisée pour la phase de validation
                 if entries[-1]["sha256"] in val_hashes:
                     raise ValueError("Une variante est identique à une image de validation.")
             print(f"{label}: {len(group)} originaux + {missing} variantes", flush=True)
+        # Validation et test
         for name in sorted(validation):
             add(f"validation/{name}", f"train/{name}", sha=source_hashes[name])
         for name in test:
@@ -182,16 +188,20 @@ def build(source, output, split, expected_sha, per_class, seed, test_count=3097)
 
 
 def verify(root):
-    metadata = read_json(root / "dataset.json")
-    entries = read_json(root / "manifest.json")
+    """Vérifie l'intégrité d'un jeu équilibré déjà généré."""
+    metadata = read_json(root / "dataset.json") # résumé du jeu (quotas, empreintes, graine...)
+    entries = read_json(root / "manifest.json") # une ligne par image (chemin, hash, transformation)
+    # Le manifeste n'a pas été modifié depuis la génération
     if metadata["kind"] != KIND or json_digest(entries) != metadata["manifest_sha256"]:
         raise ValueError("Manifeste équilibré invalide.")
     paths = {row["path"] for row in entries}
+    # Les images présentes sur le disque sont exactement celles du manifeste (ni manquante, ni en trop)
     if len(paths) != len(entries) or paths != image_paths(root):
         raise ValueError("Les fichiers présents ne correspondent pas au manifeste.")
     counts, train_hashes, val_hashes = Counter(), set(), set()
     for row in entries:
         path = relative_path(row["path"])
+        # Chaque image a bien le hash annoncé 
         if file_digest(root / path) != row["sha256"]:
             raise ValueError(f"Image différente du manifeste : {path}")
         if path.parts[0] == "train":
@@ -199,12 +209,15 @@ def verify(root):
             train_hashes.add(row["sha256"])
         elif path.parts[0] == "validation":
             val_hashes.add(row["sha256"])
+    # Chaque classe a exactement le quota (1600), et aucune image n'est à la fois en train et en validation
     expected = {label: metadata["train_per_class"] for label in metadata["classes"]}
     if counts != expected or train_hashes & val_hashes:
         raise ValueError("Quotas de train ou séparation de la validation invalides.")
+    # Le nombre de fichiers par sous-ensemble (train, validation, test) est celui attendu
     splits = Counter(relative_path(name).parts[0] for name in paths)
     if splits != {"train": sum(expected.values()), "validation": metadata["validation"], "test": metadata["test"]}:
         raise ValueError("Nombre de fichiers inattendu par sous-ensemble.")
+    # Empreinte globale du jeu : un seul hash qui résume tous les fichiers
     if files_digest((row["path"], row["sha256"]) for row in entries) != metadata["dataset_sha256"]:
         raise ValueError("Empreinte du jeu équilibré invalide.")
     return metadata
