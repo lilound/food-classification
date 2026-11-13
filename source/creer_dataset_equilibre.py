@@ -16,8 +16,8 @@ from PIL import Image, ImageEnhance, ImageOps, features
 SOURCE_DIR = Path(__file__).resolve().parent
 KIT = SOURCE_DIR / "protocole"
 ROOT = SOURCE_DIR.parent
-DEFAULT_SOURCE = ROOT / "data/food-11"
-DEFAULT_OUTPUT = ROOT / "data/food-11-balanced"
+DEFAULT_SOURCE = ROOT / "data/food-11" # jeu officiel
+DEFAULT_OUTPUT = ROOT / "data/food-11-balanced"  # jeu équilibré
 KIND = "food11-balanced-v1"
 EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp", ".ppm", ".pgm", ".tif", ".tiff", ".webp"}
 
@@ -27,6 +27,7 @@ def read_json(path):
 
 
 def json_digest(value):
+    # Calcule l'empreinte SHA-256
     return hashlib.sha256(json.dumps(value, ensure_ascii=False, separators=(",", ":")).encode()).hexdigest()
 
 
@@ -83,6 +84,7 @@ def augment(source, output, recipe):
     scale *= recipe["crop_percent"] / 100
     a, b = scale * cos, scale * sin
     cx, cy = w / 2, h / 2
+    # Transformation affine (rotation + zoom) autour du centre de l'image
     image = image.transform((w, h), Image.Transform.AFFINE,
                             (a, b, cx - a * cx - b * cy, -b, a, cy + b * cx - a * cy),
                             resample=Image.Resampling.BICUBIC)
@@ -99,26 +101,31 @@ def build(source, output, split, expected_sha, per_class, seed, test_count=3097)
         raise FileExistsError(f"Le dossier existe déjà : {output}")
     if source in output.parents or output in source.parents:
         raise ValueError("Le jeu généré doit être à côté du jeu source, dans un dossier séparé.")
+     # Vérifications sur le jeu source 
     train, validation = split["train"], split["validation"]
     classes = split["classes"]
     all_paths = train + validation
+    
     if (len(set(all_paths)) != len(all_paths) or set(all_paths) != image_paths(source / "train")
             or set(classes) != {relative_path(name).parts[0] for name in all_paths}):
         raise ValueError("Les fichiers étiquetés ne correspondent pas au découpage figé.")
+    # Images d'entraînement regroupées par classe
     grouped = {label: sorted(name for name in train if relative_path(name).parts[0] == label)
                for label in classes}
+    # Aucune classe ne doit dépasser le quota
     if per_class < 1 or any(not group or len(group) > per_class for group in grouped.values()):
         raise ValueError("Le quota doit permettre de conserver toutes les images d'entraînement.")
     source_hashes = {name: file_digest(source / "train" / relative_path(name)) for name in all_paths}
     if files_digest(source_hashes.items()) != expected_sha:
         raise ValueError("Le contenu de train ne correspond pas au jeu Food-11 attendu.")
+    # Aucune image identique entre train et validation
     val_hashes = {source_hashes[name] for name in validation}
     if val_hashes & {source_hashes[name] for name in train}:
         raise ValueError("Une copie exacte traverse le découpage.")
     test = sorted(image_paths(source / "test"))
     if len(test) != test_count or len({PurePosixPath(name).stem for name in test}) != len(test):
         raise ValueError(f"Le dossier test doit contenir {test_count} images aux identifiants uniques.")
-
+    # Construction dans un dossier temporaire 
     output.parent.mkdir(parents=True, exist_ok=True)
     entries = []
     with TemporaryDirectory(prefix=f".{output.name}-", dir=output.parent) as tmp:
@@ -154,6 +161,7 @@ def build(source, output, split, expected_sha, per_class, seed, test_count=3097)
         for name in test:
             add(f"test/{name}", f"test/{name}")
 
+        # Manifeste et métadonnées
         entries.sort(key=lambda row: row["path"])
         write_json(stage / "manifest.json", entries)
         metadata = {
@@ -208,6 +216,7 @@ def benchmark_protocol(root, protocol, split):
     if not marker.is_file():
         return protocol, split
     metadata = read_json(marker)
+    # Le jeu équilibré doit dériver du découpage et du train officiels de ce benchmark
     if (metadata["kind"] != KIND or metadata["source_split_sha256"] != json_digest(split)
             or metadata["source_train_sha256"] != protocol["dataset_sha256"]):
         raise ValueError("Le jeu équilibré ne dérive pas du découpage officiel de ce benchmark.")
